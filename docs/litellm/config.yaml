@@ -1,0 +1,29 @@
+# litellm-config
+model_list:
+  - model_name: base
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+    model_info:
+      rpm: 100
+  - model_name: base
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+    model_info:
+      rpm: 500
+  - model_name: local-gemma
+    litellm_params:
+      model: ollama_chat/gemma3:1b
+      api_base: http://localhost:11434
+      api_key: ollama
+    model_info:
+      rpm: 1000
+
+router_settings:
+  routing_strategy: usage-based-routing-v2
+  fallbacks:
+    - base:
+        - local-gemma
+  num_retries: 2
+  timeout: 30
