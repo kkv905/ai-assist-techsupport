@@ -4,6 +4,7 @@ from app.prompts.loader import load_prompt
 import json
 
 
+
 def main():
     # result = search_knowledge_base("Ошибка авторизации access denied", "АИС Правоохрана")
     # result = search_knowledge_base("Не работает приложение, ошибка 500", "")
@@ -12,6 +13,8 @@ def main():
     print(load_prompt("system_v1.j2"))
     print("=== Вывод проверки TOOLS ===")
     print(json.dumps(TOOLS, ensure_ascii=False, indent=2))
+
+
 
 
 if __name__ == "__main__":
