@@ -208,6 +208,7 @@ __marimo__/
 
 # Logs
 logs/
+tasks/
 
 # OS
 .DS_Store
