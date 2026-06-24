@@ -8,7 +8,7 @@
 - подключение observability: logs, metrics, traces;
 - подключение Telegram-бота / Яндекс.Мессенджер-бота к Service-слою;
 - добавление RAG в Data-слой;
-- развитие fault tolerance вокруг локальных LLM через Ollama.
+- развитие fault tolerance вокруг локальных LLM через Ollama. 
 
 Проект строится как чат-бот / FAQ / RAG-сервис с локальными LLM. Внешние LLM-провайдеры в базовой архитектуре не используются. Основной LLM runtime — Ollama.
 
