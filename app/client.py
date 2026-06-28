@@ -2,12 +2,16 @@ import json
 import os
 from typing import Any
 from uuid import uuid4
+
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from app.llm.parsing import parse_tool_calls
+from app.logging_config import setup_logger, write_log_event
+from app.prompts.composer import build_prompt_messages
 from app.prompts.loader import load_prompt
 from app.tools.handlers import TOOL_HANDLERS
 from app.tools.schemas import TOOLS
-from app.logging_config import setup_logger, write_log_event
 
 
 def load_settings() -> dict[str, str]:
@@ -22,52 +26,41 @@ def load_settings() -> dict[str, str]:
 
     return {"api_key": api_key, "model": model}
 
+
 def build_client(api_key: str) -> OpenAI:
     """Создает клиента OpenAI SDK."""
     return OpenAI(api_key=api_key)
 
+
 def build_initial_messages(user_text: str) -> list[dict[str, Any]]:
     """Формирует стартовую историю сообщений для модели."""
     system_prompt = load_prompt("system_v1.j2")
-    return [
-        {
-            "role": "system",
-            "content": system_prompt,
-        },
-        {
-            "role": "user",
-            "content": user_text,
-        },
-    ]
+    return build_prompt_messages(system_prompt=system_prompt, user_message=user_text)
+
 
 def execute_tool_call(tool_call: Any) -> dict[str, Any]:
     """Выполняет один tool_call и возвращает результат функции."""
-    tool_name = tool_call.function.name
-    raw_arguments = tool_call.function.arguments
 
-    if tool_name not in TOOL_HANDLERS:
-        raise ValueError(f"Неизвестный tool: {tool_name}")
+    parsed_tool_call = parse_tool_calls([tool_call])[0]
+    if parsed_tool_call.name not in TOOL_HANDLERS:
+        raise ValueError(f"Неизвестный tool: {parsed_tool_call.name}")
 
-    try:
-        arguments = json.loads(raw_arguments)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Некорректный JSON в аргументах tool: {raw_arguments}") from error
-
-    handler = TOOL_HANDLERS[tool_name]
-    result = handler(**arguments)
+    handler = TOOL_HANDLERS[parsed_tool_call.name]
+    result = handler(**parsed_tool_call.arguments)
 
     return {
-        "tool_call_id": tool_call.id,
-        "tool_name": tool_name,
-        "arguments": arguments,
+        "tool_call_id": parsed_tool_call.id,
+        "tool_name": parsed_tool_call.name,
+        "arguments": parsed_tool_call.arguments,
         "result": result,
     }
+
 
 def append_tool_results(
     messages: list[dict[str, Any]],
     assistant_message: Any,
     executed_tools: list[dict[str, Any]],
-)-> None:
+) -> None:
     """Добавляет в историю сообщение ассистента с tool_calls и результаты tools."""
     assistant_payload: dict[str, Any] = {
         "role": "assistant",
@@ -103,6 +96,7 @@ def append_tool_results(
                 ),
             }
         )
+
 
 def run_chat(user_text: str) -> dict[str, Any]:
     """Запускает полный цикл общения с моделью и обработки tool_calls."""
@@ -165,8 +159,8 @@ def run_chat(user_text: str) -> dict[str, Any]:
         raw_arguments = tool_call.function.arguments
 
         try:
-            parsed_arguments = json.loads(raw_arguments)
-        except json.JSONDecodeError:
+            parsed_arguments = parse_tool_calls([tool_call])[0].arguments
+        except ValueError:
             parsed_arguments = {
                 "raw_arguments": raw_arguments,
                 "parse_error": "Некорректный JSON в аргументах tool",
@@ -235,6 +229,7 @@ def run_chat(user_text: str) -> dict[str, Any]:
         "usage_total_tokens": usage_total_tokens,
     }
 
+
 def main() -> None:
     """Запускает ручную проверку полного цикла function calling."""
     user_text = input("Введите запрос пользователя: ").strip()
@@ -246,6 +241,7 @@ def main() -> None:
     result = run_chat(user_text)
     print("\n=== Итог выполнения ===")
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
 
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import warnings
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -46,19 +47,45 @@ def _normalize_collector_endpoint(raw_endpoint: str) -> str:
     return urlunparse(parsed._replace(path=normalized_path))
 
 
-def setup_tracing(project_name: str = "ai-assistant-techsupport") -> None:
+def setup_tracing(
+    *,
+    enabled: bool = True,
+    collector_endpoint: str = "http://localhost:6006",
+    project_name: str = "ai-assistant-techsupport",
+) -> None:
     """Подключает Phoenix и автоинструментацию OpenAI до создания клиента SDK."""
 
     global _TRACING_INITIALIZED
 
-    if _TRACING_INITIALIZED:
+    if _TRACING_INITIALIZED or not enabled:
         return
 
     os.environ["PHOENIX_WORKING_DIR"] = _resolve_phoenix_working_dir()
 
     try:
-        from openinference.instrumentation.openai import OpenAIInstrumentor
-        from phoenix.otel import register
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"tagMap is deprecated\\. Please use TAG_MAP instead\\.",
+                category=DeprecationWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"typeMap is deprecated\\. Please use TYPE_MAP instead\\.",
+                category=DeprecationWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"`MCPServerStreamableHTTP` is deprecated.*",
+                category=DeprecationWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"`json_encoders` is deprecated.*",
+                category=DeprecationWarning,
+            )
+            from openinference.instrumentation.openai import OpenAIInstrumentor
+            from phoenix.otel import register
     except ImportError:
         logging.getLogger(__name__).warning(
             "Зависимости для трассировки не установлены, Phoenix-инструментация пропущена."
@@ -71,8 +98,7 @@ def setup_tracing(project_name: str = "ai-assistant-techsupport") -> None:
         )
         return
 
-    endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
-    normalized_endpoint = _normalize_collector_endpoint(endpoint)
+    normalized_endpoint = _normalize_collector_endpoint(collector_endpoint)
     tracer_provider = register(
         project_name=project_name,
         endpoint=normalized_endpoint,

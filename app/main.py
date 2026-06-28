@@ -37,7 +37,7 @@ def build_redis_url(settings) -> str:
     auth_password = quote(password, safe="")
     hostname = parsed.hostname or "localhost"
     port = f":{parsed.port}" if parsed.port else ""
-    netloc = f":{auth_password}@{hostname}{port}"
+    netloc = f"{auth_password}@{hostname}{port}"
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
@@ -46,7 +46,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Инициализирует общие клиенты приложения и корректно закрывает их на shutdown."""
 
     settings = get_settings()
-    setup_tracing()
+    setup_tracing(
+        enabled=settings.phoenix_tracing_enabled,
+        collector_endpoint=settings.phoenix_collector_endpoint,
+    )
     app.state.openai = AsyncOpenAI(
         api_key=settings.llm.openai_api_key.get_secret_value(),
         timeout=settings.llm.request_timeout,

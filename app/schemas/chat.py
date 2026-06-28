@@ -4,12 +4,26 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.observability.pii import redact_pii
+
+MAX_MESSAGE_LENGTH = 4000
+MAX_IDENTIFIER_LENGTH = 128
+
 
 class ChatMessage(BaseModel):
     """Описывает одно сообщение в истории диалога."""
 
     role: Literal["system", "user", "assistant"] = Field(description="Роль автора сообщения.")
-    content: str = Field(min_length=1, description="Текст сообщения.")
+    content: str = Field(
+        min_length=1,
+        max_length=MAX_MESSAGE_LENGTH,
+        description="Текст сообщения.",
+    )
+
+    def __repr_args__(self) -> Any:
+        """Возвращает безопасное представление сообщения без сырых PII."""
+
+        return [("role", self.role), ("content", redact_pii(self.content))]
 
 
 class Usage(BaseModel):
@@ -47,11 +61,35 @@ class ChatRequest(BaseModel):
     )
 
     messages: list[ChatMessage] = Field(min_length=1, description="История диалога.")
-    model: str | None = Field(default=None, description="Имя модели OpenAI.")
+    model: str | None = Field(
+        default=None,
+        max_length=MAX_IDENTIFIER_LENGTH,
+        description="Имя модели OpenAI.",
+    )
     temperature: float = Field(default=0.0, ge=0, le=2, description="Температура генерации.")
     max_tokens: int = Field(default=512, ge=1, le=16000, description="Лимит токенов ответа.")
-    user_id: str | None = Field(default=None, description="Идентификатор пользователя.")
-    session_id: str | None = Field(default=None, description="Идентификатор сессии.")
+    user_id: str | None = Field(
+        default=None,
+        max_length=MAX_IDENTIFIER_LENGTH,
+        description="Идентификатор пользователя.",
+    )
+    session_id: str | None = Field(
+        default=None,
+        max_length=MAX_IDENTIFIER_LENGTH,
+        description="Идентификатор сессии.",
+    )
+
+    def __repr_args__(self) -> Any:
+        """Возвращает безопасное представление запроса без утечки PII."""
+
+        return [
+            ("messages", self.messages),
+            ("model", self.model),
+            ("temperature", self.temperature),
+            ("max_tokens", self.max_tokens),
+            ("user_id", self.user_id),
+            ("session_id", self.session_id),
+        ]
 
 
 class ChatResponse(BaseModel):

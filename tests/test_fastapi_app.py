@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-test")
+os.environ.setdefault("PHOENIX_TRACING_ENABLED", "0")
 
 from app.main import app
 from app.schemas.chat import ChatDelta, ChatResponse, Usage

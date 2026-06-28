@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     redis_password: SecretStr | None = None
     cache_ttl_seconds: int = 3600
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    phoenix_tracing_enabled: bool = True
+    phoenix_collector_endpoint: str = "http://localhost:6006"
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

@@ -121,6 +121,7 @@ class AsyncLLMClient:
         self._fallback_models = fallback_models or []
         self._cache = cache
         self._logger = logger or logging.getLogger("llm.async")
+        self._max_retries = max_retries
         self._client = client or AsyncOpenAI(
             api_key=api_key,
             timeout=timeout,
@@ -314,7 +315,7 @@ class AsyncLLMClient:
 
         for candidate_model in self._iter_candidate_models(model):
             try:
-                response = await self._client.chat.completions.create(
+                response = await self._create_completion_with_retry(
                     model=candidate_model,
                     messages=messages,
                     temperature=temperature,
@@ -330,6 +331,31 @@ class AsyncLLMClient:
             raise LLMError("Не удалось выбрать модель для выполнения запроса.")
 
         raise last_error
+
+    async def _create_completion_with_retry(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int | None,
+    ) -> Any:
+        """Повторяет запрос при `429`, чтобы переживать кратковременные rate limit."""
+
+        attempt = 0
+        while True:
+            try:
+                return await self._client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except RateLimitError:
+                if attempt >= self._max_retries:
+                    raise
+                await asyncio.sleep(min(0.25 * (2**attempt), 1.0))
+                attempt += 1
 
     async def _get_from_cache(
         self,
