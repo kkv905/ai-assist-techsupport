@@ -20,8 +20,8 @@ async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/ready", summary="Readiness probe")
-async def ready(request: Request, response: Response) -> dict:
+@router.get("/ready", summary="Проверить готовность сервиса")
+async def ready(request: Request, response: Response) -> dict[str, str]:
     """Проверяет готовность сервиса и доступность Redis."""
 
     cache = getattr(request.app.state, "cache", None)

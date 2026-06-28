@@ -60,6 +60,28 @@ def test_chat_endpoint_returns_chat_response() -> None:
     assert response.status_code == 200
     assert response.json()["content"] == "Ответ: Проверка"
     assert response.json()["cached"] is False
+    assert len(response.headers["X-Request-ID"]) == 12
+
+
+def test_chat_endpoint_echoes_request_id_header() -> None:
+    """Проверяет возврат клиентского идентификатора запроса в заголовке ответа."""
+
+    app.dependency_overrides.clear()
+    from app.deps.providers import get_llm_service
+
+    app.dependency_overrides[get_llm_service] = lambda: FakeLLMService()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                headers={"X-Request-ID": "abc123request"},
+                json={"messages": [{"role": "user", "content": "Проверка"}]},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "abc123request"
 
 
 def test_stream_endpoint_returns_sse_payload() -> None:
@@ -96,3 +118,4 @@ def test_validation_error_has_unified_format() -> None:
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
     assert response.json()["error"]["details"]
+    assert response.headers["X-Request-ID"]

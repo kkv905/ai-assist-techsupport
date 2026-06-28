@@ -1,4 +1,32 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: llm-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+    environment:
+      PHOENIX_WORKINGDIR: /data
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix-data:/data
+
   app:
     build:
       context: .
@@ -13,9 +41,12 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       REDIS_PASSWORD: ""
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
     depends_on:
       redis:
         condition: service_healthy
+      phoenix:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/ready', timeout=3).status == 200 else sys.exit(1)"]
       interval: 15s
@@ -23,19 +54,6 @@ services:
       retries: 3
       start_period: 15s
 
-  redis:
-    image: redis:7.4-alpine
-    container_name: llm-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-
 volumes:
   redis_data:
+  phoenix-data:

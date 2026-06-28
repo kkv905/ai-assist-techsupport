@@ -1,26 +1,29 @@
 from __future__ import annotations
 
-import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlsplit, urlunsplit
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
+from app.observability.logging import setup_logging
+from app.observability.tracing import setup_tracing
 from app.routers.chat import router as chat_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 
-logger = logging.getLogger("llm-service")
+logger = structlog.get_logger("app.http")
 
 
 def build_redis_url(settings) -> str:
@@ -43,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Инициализирует общие клиенты приложения и корректно закрывает их на shutdown."""
 
     settings = get_settings()
+    setup_tracing()
     app.state.openai = AsyncOpenAI(
         api_key=settings.llm.openai_api_key.get_secret_value(),
         timeout=settings.llm.request_timeout,
@@ -61,6 +65,7 @@ def create_app() -> FastAPI:
     """Создает и настраивает экземпляр FastAPI-приложения."""
 
     settings = get_settings()
+    setup_logging("DEBUG" if settings.debug else "INFO")
     app = FastAPI(
         title="AI Assist Techsupport",
         version="0.1.0",
@@ -80,21 +85,28 @@ def create_app() -> FastAPI:
     async def request_context_middleware(request: Request, call_next):
         """Назначает идентификатор запроса, логирует время обработки и добавляет заголовок ответа."""
 
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+        user_id = request.headers.get("x-user-id")
         request.state.request_id = request_id
-        started_at = time.perf_counter()
-        response = await call_next(request)
-        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        logger.info(
-            "Обработан HTTP-запрос.",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status": response.status_code,
-                "duration_ms": duration_ms,
-            },
+        bind_contextvars(
+            request_id=request_id,
+            user_id=user_id,
+            path=request.url.path,
+            method=request.method,
         )
+        started_at = time.perf_counter()
+        response = None
+        try:
+            response = await call_next(request)
+        finally:
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            logger.info(
+                "http_request_completed",
+                status=response.status_code if response is not None else 500,
+                latency_ms=duration_ms,
+            )
+            clear_contextvars()
+
         response.headers["X-Request-ID"] = request_id
         return response
 
