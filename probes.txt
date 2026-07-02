@@ -1,0 +1,2 @@
+garak LLM vulnerability scanner v0.15.1 ( https://github.com/NVIDIA/garak ) at 2026-06-29T21:51:51.386513
+[1m[93mprobes: [0magent_breaker'charmap' codec can't encode character '\U0001f31f' in position 1: character maps to <undefined>

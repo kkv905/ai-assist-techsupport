@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from redis.asyncio import Redis
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
+from app.chat.routes import router as chat_history_router
 from app.core.config import get_settings
 from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
 from app.observability.logging import setup_logging
@@ -159,6 +160,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(models_router)
     app.include_router(chat_router)
+    app.include_router(chat_history_router)
     return app
 
 

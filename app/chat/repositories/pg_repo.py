@@ -1,0 +1,98 @@
+"""PostgreSQL-реализация репозитория чатов."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from uuid import UUID
+
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.chat.domain import Chat, ChatMessage
+from app.chat.repositories.pg_models import ChatMessageRow, ChatRow
+
+
+class PostgresChatRepository:
+    """Работает с чатами через async SQLAlchemy 2.x."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        """Сохраняет сессию БД для дальнейших операций."""
+
+        self._session = session
+
+    async def create_chat(
+        self,
+        owner_external_id: str,
+        interface: str,
+        system_prompt: str | None = None,
+    ) -> Chat:
+        """Создает новую запись чата в таблице `chats`."""
+
+        row = ChatRow(
+            owner_external_id=owner_external_id,
+            interface=interface,
+            system_prompt=system_prompt,
+        )
+        self._session.add(row)
+        await self._session.commit()
+        await self._session.refresh(row)
+        return Chat.model_validate(row, from_attributes=True)
+
+    async def get_chat(self, chat_id: UUID) -> Chat | None:
+        """Возвращает чат по идентификатору или `None`, если строки нет."""
+
+        row = await self._session.get(ChatRow, chat_id)
+        if row is None:
+            return None
+        return Chat.model_validate(row, from_attributes=True)
+
+    async def append_message(self, chat_id: UUID, message: ChatMessage) -> ChatMessage:
+        """Сохраняет сообщение в таблице `chat_messages`."""
+
+        if await self._session.get(ChatRow, chat_id) is None:
+            raise LookupError(f"Чат {chat_id} не найден.")
+
+        row = ChatMessageRow(
+            id=message.id,
+            chat_id=chat_id,
+            role=message.role,
+            content=message.content,
+            tokens=message.tokens,
+            created_at=message.created_at,
+        )
+        self._session.add(row)
+        await self._session.commit()
+        await self._session.refresh(row)
+        return ChatMessage.model_validate(row, from_attributes=True)
+
+    async def list_messages(self, chat_id: UUID, limit: int = 50) -> list[ChatMessage]:
+        """Возвращает последние не удаленные сообщения в хронологическом порядке."""
+
+        if limit <= 0:
+            return []
+
+        query = (
+            select(ChatMessageRow)
+            .where(ChatMessageRow.chat_id == chat_id, ChatMessageRow.deleted_at.is_(None))
+            .order_by(ChatMessageRow.created_at.desc())
+            .limit(limit)
+        )
+        rows = (await self._session.scalars(query)).all()
+        return [
+            ChatMessage.model_validate(row, from_attributes=True)
+            for row in reversed(rows)
+        ]
+
+    async def soft_delete_messages(self, chat_id: UUID) -> None:
+        """Помечает все активные сообщения чата как удаленные."""
+
+        if await self._session.get(ChatRow, chat_id) is None:
+            raise LookupError(f"Чат {chat_id} не найден.")
+
+        query = (
+            update(ChatMessageRow)
+            .where(ChatMessageRow.chat_id == chat_id, ChatMessageRow.deleted_at.is_(None))
+            .values(deleted_at=datetime.now(UTC))
+        )
+        await self._session.execute(query)
+        await self._session.commit()

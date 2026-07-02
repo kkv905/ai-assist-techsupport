@@ -1,4 +1,6 @@
 from functools import lru_cache
+from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +40,15 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     phoenix_tracing_enabled: bool = True
     phoenix_collector_endpoint: str = "http://localhost:6006"
+    database_url: str = "postgresql+asyncpg://chat:chat@localhost:5432/chat"
+    postgres_password: SecretStr | None = None
+    chat_repository: Literal["json", "postgres"] = "json"
+    chat_storage_dir: Path = Path("./var/chats")
+    chat_context_strategy: Literal["sliding", "hybrid"] = "sliding"
+    chat_context_window: int = 10
+    chat_context_window_tokens: int = 8192
+    chat_response_tokens: int = 1024
+    chat_safety_margin: int = 256
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
