@@ -1,0 +1,25 @@
+input:
+  - category: насилие
+    blocked_by: keyword
+    patterns:
+      - '\bбомб(а|ы|ить|лю|им)?\b'
+      - '\bвзорв(ать|у|ем|ешь)\b'
+      - '\bуб(ить|ью|ьем|ьете|ийств)\b'
+  - category: мошенничество
+    blocked_by: keyword
+    patterns:
+      - '\bобнал\b'
+      - '\bкардинг\b'
+      - '\bукрасть карту\b'
+  - category: self-harm
+    blocked_by: keyword
+    patterns:
+      - '\bсамоубийств(о|а)\b'
+      - '\bкак покончить с собой\b'
+output:
+  - category: запрещенный контент
+    blocked_by: keyword
+    patterns:
+      - '\bинструкция по изготовлению бомбы\b'
+      - '\bкак украсть данные карты\b'
+

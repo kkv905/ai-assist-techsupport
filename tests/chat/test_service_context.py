@@ -11,6 +11,7 @@ import pytest
 
 from app.chat.domain import Chat, ChatMessage, MediaRef
 from app.chat.service import ChatNotFoundError, ChatService, fit_to_budget
+from app.moderation.domain import ModerationResult
 
 
 class InMemoryChatRepository:
@@ -56,6 +57,30 @@ class InMemoryChatRepository:
         """Очищает историю чата в памяти."""
 
         self.messages[chat_id] = []
+
+    async def save_feedback(self, message_id: UUID, owner_external_id: str, value: str):
+        """Возвращает тестовый feedback без сохранения."""
+
+        return SimpleNamespace(message_id=message_id, owner_external_id=owner_external_id, value=value)
+
+    async def record_moderation_event(self, **kwargs) -> None:
+        """Игнорирует аудит модерации в unit-тестах."""
+
+        return None
+
+
+class FakeModerationService:
+    """Всегда разрешает контент для тестов сервисного слоя."""
+
+    async def check_input(self, content: str) -> ModerationResult:
+        """Разрешает входной текст без ограничений."""
+
+        return ModerationResult(allowed=True)
+
+    async def check_output(self, content: str) -> ModerationResult:
+        """Разрешает выходной текст без ограничений."""
+
+        return ModerationResult(allowed=True)
 
 
 class FakeStream:
@@ -145,13 +170,15 @@ async def test_send_message_builds_sliding_window_context() -> None:
     service = ChatService(
         repository=repository,
         llm_client=llm_client,
+        moderation_service=FakeModerationService(),
         context_window=3,
         context_window_tokens=10000,
         response_tokens=16,
         safety_margin=0,
     )
 
-    chunks = [chunk async for chunk in service.send_message(chat.id, "Второй вопрос")]
+    events = [event async for event in service.send_message(chat.id, "Второй вопрос")]
+    chunks = [event.delta for event in events if event.type == "token"]
 
     assert chunks == ["Готов", "о"]
     payload = llm_client.chat.completions.calls[0]["messages"]
@@ -159,6 +186,8 @@ async def test_send_message_builds_sliding_window_context() -> None:
     assert {"role": "user", "content": "Второй вопрос"} in payload
     stored_messages = await repository.list_messages(chat.id)
     assert any(message.role == "assistant" and message.content == "Готово" for message in stored_messages)
+    assert events[-1].type == "done"
+    assert events[-1].message_id is not None
 
 
 @pytest.mark.asyncio
@@ -174,9 +203,15 @@ async def test_send_message_restores_multimodal_parts_in_context() -> None:
         part={"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAA"}},
     )
     llm_client = FakeLLMClient(["Вижу изображение"])
-    service = ChatService(repository=repository, llm_client=llm_client, context_window_tokens=10000)
+    service = ChatService(
+        repository=repository,
+        llm_client=llm_client,
+        moderation_service=FakeModerationService(),
+        context_window_tokens=10000,
+    )
 
-    chunks = [chunk async for chunk in service.send_message(chat.id, "Опиши фото", media_refs=media_ref)]
+    events = [event async for event in service.send_message(chat.id, "Опиши фото", media_refs=media_ref)]
+    chunks = [event.delta for event in events if event.type == "token"]
 
     assert chunks == ["Вижу изображение"]
     payload = llm_client.chat.completions.calls[0]["messages"]
@@ -191,7 +226,7 @@ async def test_send_message_saves_partial_answer_when_stream_breaks() -> None:
     repository = InMemoryChatRepository()
     chat = await repository.create_chat("user-1", "web")
     llm_client = FakeLLMClient(["Часть ответа"], fail_after_first=True)
-    service = ChatService(repository=repository, llm_client=llm_client)
+    service = ChatService(repository=repository, llm_client=llm_client, moderation_service=FakeModerationService())
 
     with pytest.raises(RuntimeError):
         async for _ in service.send_message(chat.id, "Проблема"):
@@ -209,7 +244,11 @@ async def test_clear_history_delegates_to_repository() -> None:
     repository = InMemoryChatRepository()
     chat = await repository.create_chat("user-1", "web")
     await repository.append_message(chat.id, ChatMessage(chat_id=chat.id, role="user", content="До очистки"))
-    service = ChatService(repository=repository, llm_client=FakeLLMClient(["ok"]))
+    service = ChatService(
+        repository=repository,
+        llm_client=FakeLLMClient(["ok"]),
+        moderation_service=FakeModerationService(),
+    )
 
     await service.clear_history(chat.id)
 
@@ -220,11 +259,16 @@ async def test_clear_history_delegates_to_repository() -> None:
 async def test_send_message_raises_for_unknown_chat() -> None:
     """Проверяет доменную ошибку при отправке сообщения в неизвестный чат."""
 
-    service = ChatService(repository=InMemoryChatRepository(), llm_client=FakeLLMClient(["ok"]))
+    service = ChatService(
+        repository=InMemoryChatRepository(),
+        llm_client=FakeLLMClient(["ok"]),
+        moderation_service=FakeModerationService(),
+    )
 
     with pytest.raises(ChatNotFoundError):
         async for _ in service.send_message(uuid4(), "Привет"):
             pass
+
 
 
 def test_fit_to_budget_keeps_system_message() -> None:

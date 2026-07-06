@@ -10,7 +10,7 @@ from uuid import UUID
 import aiofiles
 from pydantic import BaseModel, Field
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, FeedbackValue, MessageFeedback
 
 
 class SoftDeleteMarker(BaseModel):
@@ -107,6 +107,32 @@ class JsonChatRepository:
         marker = SoftDeleteMarker()
         async with aiofiles.open(self._messages_path(chat_id), "a", encoding="utf-8") as file:
             await file.write(f"{marker.model_dump_json()}\n")
+
+    async def save_feedback(
+        self,
+        message_id: UUID,
+        owner_external_id: str,
+        value: FeedbackValue,
+    ) -> MessageFeedback:
+        """Возвращает feedback-модель без долговременного хранения для JSON-репозитория."""
+
+        return MessageFeedback(message_id=message_id, owner_external_id=owner_external_id, value=value)
+
+    async def record_moderation_event(
+        self,
+        *,
+        chat_id: UUID | None,
+        owner_external_id: str | None,
+        direction: str,
+        allowed: bool,
+        categories: list[str],
+        reasons: list[str],
+        blocked_by: str,
+        text_hash: str,
+    ) -> None:
+        """Игнорирует аудит модерации для файлового режима без отдельного журнала."""
+
+        return None
 
     def _chat_dir(self, chat_id: UUID) -> Path:
         """Строит путь до каталога конкретного чата."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,15 @@ _RETRYABLE_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
 _MAX_ATTEMPTS = 3
 
 
+@dataclass(slots=True)
+class BackendStreamEvent:
+    """Описывает одно SSE-событие от backend при ответе модели."""
+
+    type: str
+    delta: str | None = None
+    message_id: UUID | None = None
+
+
 class BackendClient:
     """Инкапсулирует HTTP-вызовы к backend сервиса чатов."""
 
@@ -22,12 +32,14 @@ class BackendClient:
         self,
         base_url: str,
         *,
+        admin_token: str | None = None,
         http_client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """Создает или принимает готовый `httpx.AsyncClient` с базовым адресом backend."""
 
         self._owns_client = http_client is None
+        self._admin_token = admin_token
         self._client = http_client or httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=_DEFAULT_TIMEOUT,
@@ -54,8 +66,8 @@ class BackendClient:
         content: str,
         media: bytes | None = None,
         mime: str | None = None,
-    ) -> AsyncIterator[str]:
-        """Отправляет сообщение и по мере поступления отдает SSE-токены ответа."""
+    ) -> AsyncIterator[BackendStreamEvent]:
+        """Отправляет сообщение и отдает SSE-события ответа backend."""
 
         files = None
         if media is not None:
@@ -77,10 +89,12 @@ class BackendClient:
                 if not line.startswith("data: "):
                     continue
                 payload = json.loads(line.removeprefix("data: "))
-                if payload.get("type") == "token":
-                    yield payload.get("delta", "")
-                elif payload.get("type") == "done":
-                    return
+                message_id = payload.get("message_id")
+                yield BackendStreamEvent(
+                    type=payload.get("type", "token"),
+                    delta=payload.get("delta"),
+                    message_id=UUID(message_id) if message_id else None,
+                )
         finally:
             await response.aclose()
 
@@ -88,6 +102,64 @@ class BackendClient:
         """Очищает историю сообщений чата на стороне backend."""
 
         await self._request_with_retry("DELETE", f"/chats/{chat_id}/messages")
+
+    async def submit_feedback(self, chat_id: UUID, message_id: UUID, value: str) -> None:
+        """Отправляет голос пользователя за сообщение ассистента."""
+
+        await self._request_with_retry(
+            "POST",
+            f"/chats/{chat_id}/messages/{message_id}/feedback",
+            json={"value": value},
+        )
+
+    async def get_admin_stats(self) -> dict[str, Any]:
+        """Получает агрегированную статистику из admin API."""
+
+        response = await self._request_with_retry("GET", "/chats/admin/stats", headers=self._admin_headers())
+        return response.json()
+
+    async def get_admin_users(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Получает список последних пользователей из admin API."""
+
+        response = await self._request_with_retry(
+            "GET",
+            "/chats/admin/users",
+            params={"limit": limit},
+            headers=self._admin_headers(),
+        )
+        return response.json()
+
+    async def create_broadcast(self, message: str, interface_filter: str) -> dict[str, Any]:
+        """Создает задачу рассылки в admin API."""
+
+        response = await self._request_with_retry(
+            "POST",
+            "/chats/admin/broadcast",
+            json={"message": message, "interface_filter": interface_filter},
+            headers=self._admin_headers(),
+        )
+        return response.json()
+
+    async def claim_broadcasts(self, interface_filter: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Забирает задания очереди рассылок для фонового обработчика бота."""
+
+        response = await self._request_with_retry(
+            "POST",
+            "/chats/admin/broadcasts/claim",
+            json={"interface_filter": interface_filter, "limit": limit},
+            headers=self._admin_headers(),
+        )
+        return response.json()
+
+    async def complete_broadcast(self, broadcast_id: UUID, status: str, error: str | None = None) -> None:
+        """Подтверждает завершение или провал задачи массовой рассылки."""
+
+        await self._request_with_retry(
+            "POST",
+            f"/chats/admin/broadcasts/{broadcast_id}/complete",
+            json={"status": status, "error": error},
+            headers=self._admin_headers(),
+        )
 
     async def _request_with_retry(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Повторяет только сетевые ошибки подключения без ретрая HTTP-статусов."""
@@ -120,6 +192,13 @@ class BackendClient:
         if last_error is not None:
             raise last_error
         raise RuntimeError("Streaming-запрос завершился без результата.")
+
+    def _admin_headers(self) -> dict[str, str]:
+        """Возвращает заголовки административного доступа к backend."""
+
+        if not self._admin_token:
+            raise RuntimeError("Для admin API не настроен X-Admin-Token.")
+        return {"X-Admin-Token": self._admin_token}
 
     def _guess_filename(self, mime: str | None) -> str:
         """Подбирает расширение файла по MIME, чтобы backend корректно распознал формат."""

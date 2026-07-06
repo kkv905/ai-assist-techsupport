@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, FeedbackValue, MessageFeedback
 
 
 class ChatRepository(Protocol):
@@ -30,3 +30,25 @@ class ChatRepository(Protocol):
 
     async def soft_delete_messages(self, chat_id: UUID) -> None:
         """Мягко очищает историю чата без удаления самого чата."""
+
+    async def save_feedback(
+        self,
+        message_id: UUID,
+        owner_external_id: str,
+        value: FeedbackValue,
+    ) -> MessageFeedback:
+        """Сохраняет голос пользователя за сообщение ассистента."""
+
+    async def record_moderation_event(
+        self,
+        *,
+        chat_id: UUID | None,
+        owner_external_id: str | None,
+        direction: str,
+        allowed: bool,
+        categories: list[str],
+        reasons: list[str],
+        blocked_by: str,
+        text_hash: str,
+    ) -> None:
+        """Сохраняет инцидент или факт проверки модерации."""

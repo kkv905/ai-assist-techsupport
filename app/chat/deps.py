@@ -15,6 +15,7 @@ from app.chat.repositories.pg_repo import PostgresChatRepository
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import Settings, get_settings
+from app.moderation.service import ModerationService
 
 
 @lru_cache
@@ -66,9 +67,24 @@ def get_repository(
     )
 
 
+def get_moderation_service(
+    settings: Settings = Depends(get_settings),
+    llm_client: Any = Depends(get_llm_client),
+) -> ModerationService:
+    """Собирает сервис модерации с локальными и внешними правилами."""
+
+    return ModerationService(
+        keywords_path=settings.moderation_keywords_path,
+        openai_client=llm_client,
+        openai_enabled=settings.moderation_openai_enabled,
+        category_thresholds=settings.moderation_category_thresholds,
+    )
+
+
 def get_chat_service(
     repository: ChatRepository = Depends(get_repository),
     llm_client: Any = Depends(get_llm_client),
+    moderation_service: ModerationService = Depends(get_moderation_service),
     settings: Settings = Depends(get_settings),
 ) -> ChatService:
     """Собирает сервисный слой модуля чата."""
@@ -76,6 +92,7 @@ def get_chat_service(
     return ChatService(
         repository=repository,
         llm_client=llm_client,
+        moderation_service=moderation_service,
         model=settings.llm.default_model,
         context_strategy=settings.chat_context_strategy,
         context_window=settings.chat_context_window,
@@ -86,3 +103,4 @@ def get_chat_service(
 
 
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
+DbSessionDep = Annotated[AsyncSession | None, Depends(get_db_session)]

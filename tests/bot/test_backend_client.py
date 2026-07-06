@@ -34,9 +34,10 @@ async def test_get_or_create_chat_returns_uuid() -> None:
 
 @pytest.mark.asyncio
 async def test_send_message_parses_sse_stream() -> None:
-    """Проверяет разбор SSE-ответа в поток текстовых чанков."""
+    """Проверяет разбор SSE-ответа в поток событий."""
 
     chat_id = uuid4()
+    assistant_message_id = uuid4()
 
     async def handler(request: httpx.Request) -> httpx.Response:
         """Возвращает поток в формате SSE с JSON-полезной нагрузкой."""
@@ -49,17 +50,19 @@ async def test_send_message_parses_sse_stream() -> None:
             text=(
                 'data: {"type":"token","delta":"Часть 1"}\n\n'
                 'data: {"type":"token","delta":" и часть 2"}\n\n'
-                'data: {"type":"done"}\n\n'
+                f'data: {{"type":"done","message_id":"{assistant_message_id}"}}\n\n'
             ),
         )
 
     client = BackendClient("http://testserver", transport=httpx.MockTransport(handler))
     try:
-        chunks = [chunk async for chunk in client.send_message(chat_id, "Привет")]
+        events = [event async for event in client.send_message(chat_id, "Привет")]
     finally:
         await client.aclose()
 
-    assert chunks == ["Часть 1", " и часть 2"]
+    assert [event.delta for event in events if event.type == "token"] == ["Часть 1", " и часть 2"]
+    assert events[-1].type == "done"
+    assert events[-1].message_id == assistant_message_id
 
 
 @pytest.mark.asyncio
@@ -86,9 +89,9 @@ async def test_send_message_sends_multipart_when_media_present() -> None:
 
     client = BackendClient("http://testserver", transport=httpx.MockTransport(handler))
     try:
-        chunks = [
-            chunk
-            async for chunk in client.send_message(
+        events = [
+            event
+            async for event in client.send_message(
                 chat_id,
                 "Проверь документ",
                 media=b"%PDF-test",
@@ -98,7 +101,7 @@ async def test_send_message_sends_multipart_when_media_present() -> None:
     finally:
         await client.aclose()
 
-    assert chunks == []
+    assert events[-1].type == "done"
 
 
 @pytest.mark.asyncio
@@ -119,3 +122,22 @@ async def test_clear_messages_sends_delete_to_expected_url() -> None:
         await client.clear_messages(chat_id)
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_admin_stats_uses_admin_header() -> None:
+    """Проверяет, что admin API вызывается с заголовком X-Admin-Token."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        """Проверяет заголовки запроса к admin API."""
+
+        assert request.headers["X-Admin-Token"] == "secret"
+        return httpx.Response(200, json={"total_messages": 1, "active_users": 1, "avg_latency_ms": 1, "moderation_block_rate": 0, "feedback_up_ratio": 1})
+
+    client = BackendClient("http://testserver", admin_token="secret", transport=httpx.MockTransport(handler))
+    try:
+        payload = await client.get_admin_stats()
+    finally:
+        await client.aclose()
+
+    assert payload["total_messages"] == 1

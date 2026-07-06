@@ -13,6 +13,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import get_settings
 from bot.handlers import get_root_router
 from bot.services.backend_client import BackendClient
+from bot.services.broadcasts import run_broadcast_worker
 from bot.web import build_api
 
 
@@ -26,7 +27,11 @@ async def main() -> None:
         base_url=settings.backend_url.rstrip("/"),
         timeout=httpx.Timeout(connect=3.0, read=60.0, write=10.0, pool=5.0),
     )
-    backend = BackendClient(settings.backend_url, http_client=http_client)
+    backend = BackendClient(
+        settings.backend_url,
+        admin_token=settings.admin_token.get_secret_value(),
+        http_client=http_client,
+    )
 
     dispatcher["backend"] = backend
     dispatcher["admin_ids"] = set(settings.bot_admin_ids)
@@ -42,6 +47,7 @@ async def main() -> None:
             await asyncio.gather(
                 dispatcher.start_polling(bot, handle_signals=False),
                 server.serve(),
+                run_broadcast_worker(bot, backend, settings.broadcast_poll_interval_seconds),
             )
     finally:
         await http_client.aclose()

@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
+import structlog
 import tiktoken
+from fastapi import HTTPException
 
-from app.chat.domain import Chat, ChatMessage, MediaRef
+from app.chat.domain import Chat, ChatMessage, ChatStreamEvent, FeedbackValue, MediaRef, MessageFeedback
 from app.chat.repository import ChatRepository
+from app.moderation.domain import ModerationResult
+from app.moderation.service import ModerationService
+from app.observability.pii import prompt_hash, redact_pii
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger("app.chat")
 
 CONTEXT_WINDOW_TOKENS = 8192
 RESPONSE_TOKENS = 1024
@@ -20,6 +25,7 @@ SAFETY_MARGIN = 256
 DEFAULT_CONTEXT_WINDOW = 10
 DEFAULT_MODEL = "gpt-5.2"
 TOKEN_ENCODING = tiktoken.get_encoding("o200k_base")
+BLOCKED_OUTPUT_TEXT = "Не могу показать ответ — он мог нарушить правила"
 
 
 class ChatNotFoundError(Exception):
@@ -27,12 +33,13 @@ class ChatNotFoundError(Exception):
 
 
 class ChatService:
-    """Оркестрирует работу репозитория, контекста и LLM-клиента."""
+    """Оркестрирует работу репозитория, контекста, модерации и LLM-клиента."""
 
     def __init__(
         self,
         repository: ChatRepository,
         llm_client: Any,
+        moderation_service: ModerationService,
         *,
         model: str = DEFAULT_MODEL,
         context_strategy: str = "sliding",
@@ -45,6 +52,7 @@ class ChatService:
 
         self._repository = repository
         self._llm_client = llm_client
+        self._moderation_service = moderation_service
         self._model = model
         self._context_strategy = context_strategy
         self._context_window = context_window
@@ -96,15 +104,40 @@ class ChatService:
         await self._ensure_chat_exists(chat_id)
         await self._repository.soft_delete_messages(chat_id)
 
+    async def save_feedback(
+        self,
+        chat_id: UUID,
+        message_id: UUID,
+        value: FeedbackValue,
+    ) -> MessageFeedback:
+        """Сохраняет feedback за сообщение внутри существующего чата."""
+
+        chat = await self._ensure_chat_exists(chat_id)
+        return await self._repository.save_feedback(message_id, chat.owner_external_id, value)
+
     async def send_message(
         self,
         chat_id: UUID,
         user_content: str,
         media_refs: MediaRef | None = None,
-    ) -> AsyncIterator[str]:
-        """Сохраняет запрос пользователя, стримит ответ и пишет его в историю."""
+    ) -> AsyncIterator[ChatStreamEvent]:
+        """Сохраняет запрос пользователя, проверяет модерацию и отдает итоговый поток SSE-событий."""
 
-        await self._ensure_chat_exists(chat_id)
+        chat = await self._ensure_chat_exists(chat_id)
+
+        input_result = await self._moderation_service.check_input(user_content)
+        await self._audit_moderation(
+            chat_id=chat_id,
+            owner_external_id=chat.owner_external_id,
+            direction="input",
+            content=user_content,
+            result=input_result,
+        )
+        if not input_result.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "moderation_blocked", "categories": input_result.categories},
+            )
 
         user_message = ChatMessage(
             chat_id=chat_id,
@@ -114,7 +147,6 @@ class ChatService:
         )
         await self._repository.append_message(chat_id, user_message)
 
-        chat = await self._ensure_chat_exists(chat_id)
         history = await self._load_history(chat_id)
         llm_messages = await self._build_context(chat, history)
         budget = self._context_window_tokens - self._response_tokens - self._safety_margin
@@ -127,7 +159,8 @@ class ChatService:
             stream=True,
             stream_options={"include_usage": True},
         )
-        stream_interrupted = False
+        stream_error: Exception | None = None
+        started_at = time.perf_counter()
 
         try:
             async for chunk in stream:
@@ -137,23 +170,46 @@ class ChatService:
                 if not delta:
                     continue
                 answer_parts.append(delta)
-                yield delta
-        except Exception:
-            stream_interrupted = True
-            logger.warning("Потоковый ответ LLM прерван, сохраняю накопленный ответ.")
-            raise
+        except Exception as error:
+            stream_error = error
+            logger.warning("llm_stream_interrupted")
         finally:
             await stream.close()
-            assistant_content = "".join(answer_parts)
-            if assistant_content:
-                assistant_message = ChatMessage(
-                    chat_id=chat_id,
-                    role="assistant",
-                    content=assistant_content,
-                )
-                await self._repository.append_message(chat_id, assistant_message)
-            elif stream_interrupted:
-                logger.warning("Поток был прерван до получения текстовых токенов.")
+
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        assistant_content = "".join(answer_parts)
+        if assistant_content:
+            output_result = await self._moderation_service.check_output(assistant_content)
+            await self._audit_moderation(
+                chat_id=chat_id,
+                owner_external_id=chat.owner_external_id,
+                direction="output",
+                content=assistant_content,
+                result=output_result,
+            )
+            if not output_result.allowed:
+                assistant_content = BLOCKED_OUTPUT_TEXT
+                answer_parts = [assistant_content]
+
+        assistant_message_id: UUID | None = None
+        if assistant_content:
+            assistant_message = ChatMessage(
+                chat_id=chat_id,
+                role="assistant",
+                content=assistant_content,
+                latency_ms=latency_ms,
+            )
+            stored_message = await self._repository.append_message(chat_id, assistant_message)
+            assistant_message_id = stored_message.id
+        elif stream_error is not None:
+            logger.warning("llm_stream_interrupted_before_text")
+
+        if stream_error is not None:
+            raise stream_error
+
+        for chunk in answer_parts:
+            yield ChatStreamEvent(type="token", delta=chunk)
+        yield ChatStreamEvent(type="done", message_id=assistant_message_id)
 
     async def _load_history(self, chat_id: UUID) -> list[ChatMessage]:
         """Загружает историю чата по выбранной стратегии."""
@@ -222,6 +278,39 @@ class ChatService:
             raise ChatNotFoundError(f"Чат {chat_id} не найден.")
         return chat
 
+    async def _audit_moderation(
+        self,
+        *,
+        chat_id: UUID,
+        owner_external_id: str,
+        direction: str,
+        content: str,
+        result: ModerationResult,
+    ) -> None:
+        """Логирует и сохраняет результат проверки модерации без сырого текста."""
+
+        text_hash = prompt_hash(content)
+        logger.info(
+            "moderation_checked",
+            direction=direction,
+            allowed=result.allowed,
+            categories=result.categories,
+            reasons=result.reasons,
+            blocked_by=result.blocked_by,
+            text_hash=text_hash,
+            text_preview=redact_pii(content)[:120],
+        )
+        await self._repository.record_moderation_event(
+            chat_id=chat_id,
+            owner_external_id=owner_external_id,
+            direction=direction,
+            allowed=result.allowed,
+            categories=result.categories,
+            reasons=result.reasons,
+            blocked_by=result.blocked_by,
+            text_hash=text_hash,
+        )
+
 
 def count_tokens(messages: list[dict[str, Any]]) -> int:
     """Подсчитывает примерное число токенов с учетом ChatML overhead."""
@@ -232,6 +321,7 @@ def count_tokens(messages: list[dict[str, Any]]) -> int:
         total += len(TOKEN_ENCODING.encode(message["role"]))
         total += len(TOKEN_ENCODING.encode(_flatten_content_for_tokens(message["content"])))
     return total
+
 
 
 def fit_to_budget(messages: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
@@ -257,6 +347,7 @@ def fit_to_budget(messages: list[dict[str, Any]], budget: int) -> list[dict[str,
     return [system_message] if system_message and count_tokens([system_message]) <= budget else []
 
 
+
 def _to_openai_messages(history: list[ChatMessage]) -> list[dict[str, Any]]:
     """Преобразует доменные сообщения в формат OpenAI API."""
 
@@ -272,6 +363,7 @@ def _to_openai_messages(history: list[ChatMessage]) -> list[dict[str, Any]]:
         parts.append(message.media_refs.part)
         messages.append({"role": message.role, "content": parts})
     return messages
+
 
 
 def _flatten_content_for_tokens(content: Any) -> str:

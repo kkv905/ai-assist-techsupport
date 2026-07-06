@@ -11,8 +11,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.chat.deps import ChatServiceDep
-from app.chat.domain import Chat, ChatMessage, MediaRef
+from app.chat.domain import Chat, ChatMessage, ChatStreamEvent, MediaRef
+from app.chat.feedback import FeedbackIn, FeedbackOut
 from app.chat.media import media_to_part
+from app.chat.service import ChatNotFoundError
 from app.core.config import get_settings
 from app.services.notifier import notify_user
 
@@ -113,17 +115,42 @@ async def send_message(
             part=part,
         )
 
-    async def event_stream() -> AsyncIterator[str]:
-        """Сериализует чанки модели в SSE-формат с JSON-полезной нагрузкой."""
+    events = chat_service.send_message(chat_id, content, media_refs=media_refs)
+    try:
+        first_event = await anext(events)
+    except StopAsyncIteration:
+        first_event = ChatStreamEvent(type="done")
+    except ChatNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.") from error
 
-        async for delta in chat_service.send_message(chat_id, content, media_refs=media_refs):
-            payload = json.dumps({"type": "token", "delta": delta}, ensure_ascii=False)
+    async def event_stream() -> AsyncIterator[str]:
+        """Сериализует события сервиса чата в SSE-формат с JSON-полезной нагрузкой."""
+
+        payload = json.dumps(first_event.model_dump(mode="json", exclude_none=True), ensure_ascii=False)
+        yield f"data: {payload}\n\n"
+        async for event in events:
+            payload = json.dumps(event.model_dump(mode="json", exclude_none=True), ensure_ascii=False)
             yield f"data: {payload}\n\n"
 
-        done_payload = json.dumps({"type": "done"}, ensure_ascii=False)
-        yield f"data: {done_payload}\n\n"
-
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/{chat_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
+async def save_feedback(
+    chat_id: UUID,
+    message_id: UUID,
+    payload: FeedbackIn,
+    chat_service: ChatServiceDep,
+) -> FeedbackOut:
+    """Сохраняет реакцию пользователя на сообщение ассистента."""
+
+    try:
+        await chat_service.save_feedback(chat_id, message_id, payload.value)
+    except ValueError as error:
+        if str(error) == "feedback_already_exists":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Feedback уже сохранен.") from error
+        raise
+    return FeedbackOut(status="ok")
 
 
 @router.post("/{chat_id}/system-message", response_model=StatusOut)
@@ -168,3 +195,4 @@ async def clear_messages(chat_id: UUID, chat_service: ChatServiceDep) -> StatusO
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.")
     await chat_service.clear_history(chat_id)
     return StatusOut(status="ok")
+

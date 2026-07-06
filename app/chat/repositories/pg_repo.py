@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.domain import Chat, ChatMessage
-from app.chat.repositories.pg_models import ChatMessageRow, ChatRow
+from app.chat.domain import Chat, ChatMessage, FeedbackValue, MessageFeedback
+from app.chat.repositories.pg_models import ChatMessageRow, ChatRow, MessageFeedbackRow, ModerationEventRow
 
 
 class PostgresChatRepository:
@@ -59,6 +60,7 @@ class PostgresChatRepository:
             content=message.content,
             media_refs=message.media_refs.model_dump() if message.media_refs else None,
             tokens=message.tokens,
+            latency_ms=message.latency_ms,
             created_at=message.created_at,
         )
         self._session.add(row)
@@ -93,4 +95,54 @@ class PostgresChatRepository:
             .values(deleted_at=datetime.now(UTC))
         )
         await self._session.execute(query)
+        await self._session.commit()
+
+    async def save_feedback(
+        self,
+        message_id: UUID,
+        owner_external_id: str,
+        value: FeedbackValue,
+    ) -> MessageFeedback:
+        """Сохраняет feedback и переводит конфликт уникальности в понятную доменную ошибку."""
+
+        row = MessageFeedbackRow(
+            message_id=message_id,
+            owner_external_id=owner_external_id,
+            value=value,
+        )
+        self._session.add(row)
+        try:
+            await self._session.commit()
+        except IntegrityError as error:
+            await self._session.rollback()
+            raise ValueError("feedback_already_exists") from error
+
+        await self._session.refresh(row)
+        return MessageFeedback.model_validate(row, from_attributes=True)
+
+    async def record_moderation_event(
+        self,
+        *,
+        chat_id: UUID | None,
+        owner_external_id: str | None,
+        direction: str,
+        allowed: bool,
+        categories: list[str],
+        reasons: list[str],
+        blocked_by: str,
+        text_hash: str,
+    ) -> None:
+        """Сохраняет результат проверки модерации в PostgreSQL."""
+
+        row = ModerationEventRow(
+            chat_id=chat_id,
+            owner_external_id=owner_external_id,
+            direction=direction,
+            allowed=allowed,
+            categories=categories,
+            reasons=reasons,
+            blocked_by=blocked_by,
+            text_hash=text_hash,
+        )
+        self._session.add(row)
         await self._session.commit()

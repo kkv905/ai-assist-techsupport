@@ -49,5 +49,6 @@ select = ["E", "F"]
 ignore = ["F401", "E501"]
 
 [tool.pytest.ini_options]
-addopts = "-p no:phoenix -p no:cacheprovider"
+addopts = "-p no:phoenix -p no:cacheprovider --basetemp=.pytest-temp"
 testpaths = ["tests"]
+

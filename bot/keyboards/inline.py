@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -22,6 +24,16 @@ def topics_kb() -> InlineKeyboardMarkup:
 
     builder.button(text="Отмена", callback_data="topic:cancel")
     builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def feedback_kb(message_id: UUID) -> InlineKeyboardMarkup:
+    """Собирает inline-клавиатуру голосования за ответ ассистента."""
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👍", callback_data=f"fb:up:{message_id}")
+    builder.button(text="👎", callback_data=f"fb:down:{message_id}")
+    builder.adjust(2)
     return builder.as_markup()
 
 

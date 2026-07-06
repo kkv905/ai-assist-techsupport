@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from aiogram.exceptions import TelegramRetryAfter
 
 from bot.handlers.common import stream_to_chat
+from bot.services.backend_client import BackendStreamEvent
 
 
 async def _stream_chunks() -> object:
-    """Возвращает тестовый асинхронный поток из двух чанков."""
+    """Возвращает тестовый асинхронный поток из двух чанков и финального done."""
 
-    for chunk in ("Привет", ", мир"):
-        yield chunk
+    for event in (
+        BackendStreamEvent(type="token", delta="Привет"),
+        BackendStreamEvent(type="token", delta=", мир"),
+        BackendStreamEvent(type="done", message_id=uuid4()),
+    ):
+        yield event
 
 
 @pytest.mark.asyncio
@@ -33,9 +39,13 @@ async def test_stream_to_chat_uses_draft_and_sends_final_message() -> None:
 
     result = await stream_to_chat(message, _stream_chunks())
 
-    assert result == "Привет, мир"
+    assert result.text == "Привет, мир"
+    assert result.message_id is not None
     assert bot.send_message_draft.await_count >= 2
-    bot.send_message.assert_awaited_once_with(chat_id=100, text="Привет, мир")
+    assert bot.send_message.await_count == 1
+    assert bot.send_message.await_args.kwargs["chat_id"] == 100
+    assert bot.send_message.await_args.kwargs["text"] == "Привет, мир"
+    assert bot.send_message.await_args.kwargs["reply_markup"] is not None
 
 
 @pytest.mark.asyncio
@@ -60,6 +70,6 @@ async def test_stream_to_chat_retries_after_flood_control_on_draft() -> None:
 
     result = await stream_to_chat(message, _stream_chunks())
 
-    assert result == "Привет, мир"
+    assert result.text == "Привет, мир"
     assert bot.send_message_draft.await_count >= 3
-    bot.send_message.assert_awaited_once_with(chat_id=100, text="Привет, мир")
+    assert bot.send_message.await_count == 1

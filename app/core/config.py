@@ -51,7 +51,11 @@ class Settings(BaseSettings):
     chat_safety_margin: int = 256
     bot_url: str = "http://bot:9000"
     internal_token: SecretStr = SecretStr("change-me")
+    admin_token: SecretStr = SecretStr("change-me-admin")
     bot_api_port: int = 9000
+    moderation_keywords_path: Path = Path("app/moderation/moderation_keywords.yaml")
+    moderation_openai_enabled: bool = False
+    moderation_category_thresholds: dict[str, float] = Field(default_factory=dict)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

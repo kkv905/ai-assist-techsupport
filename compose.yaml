@@ -22,6 +22,8 @@ services:
       POSTGRES_USER: chat
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chat}
       POSTGRES_DB: chat
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -50,6 +52,7 @@ services:
     image: llm-service:dev
     container_name: llm-service
     restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"
     env_file:
@@ -58,6 +61,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_PASSWORD: ""
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
+      DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-chat}@postgres:5432/chat
+      CHAT_REPOSITORY: postgres
+      BOT_URL: http://bot:9000
     depends_on:
       redis:
         condition: service_healthy
@@ -71,6 +77,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  bot:
+    image: llm-service:dev
+    container_name: llm-telegram-bot
+    restart: unless-stopped
+    command: ["python", "-m", "bot"]
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: http://app:8000
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me-admin}
+      BOT_API_PORT: 9000
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   redis_data:
