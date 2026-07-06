@@ -19,6 +19,8 @@ class BotSettings(BaseSettings):
 
     bot_token: SecretStr
     backend_url: str
+    internal_token: SecretStr = SecretStr("change-me")
+    bot_api_port: int = 9000
     bot_admin_ids: list[int] = Field(default_factory=list)
 
 

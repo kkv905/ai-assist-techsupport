@@ -57,6 +57,7 @@ class PostgresChatRepository:
             chat_id=chat_id,
             role=message.role,
             content=message.content,
+            media_refs=message.media_refs.model_dump() if message.media_refs else None,
             tokens=message.tokens,
             created_at=message.created_at,
         )
@@ -78,10 +79,7 @@ class PostgresChatRepository:
             .limit(limit)
         )
         rows = (await self._session.scalars(query)).all()
-        return [
-            ChatMessage.model_validate(row, from_attributes=True)
-            for row in reversed(rows)
-        ]
+        return [ChatMessage.model_validate(row, from_attributes=True) for row in reversed(rows)]
 
     async def soft_delete_messages(self, chat_id: UUID) -> None:
         """Помечает все активные сообщения чата как удаленные."""

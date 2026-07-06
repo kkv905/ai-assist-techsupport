@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 ChatRole = Literal["user", "assistant", "system"]
+
+
+class MediaRef(BaseModel):
+    """Описывает сохраненную ссылку на мультимодальную часть сообщения."""
+
+    mime: str
+    size: int | None = None
+    filename: str | None = None
+    part: dict[str, Any]
 
 
 class ChatMessage(BaseModel):
@@ -20,6 +29,7 @@ class ChatMessage(BaseModel):
     chat_id: UUID
     role: ChatRole
     content: str
+    media_refs: MediaRef | None = None
     tokens: int | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

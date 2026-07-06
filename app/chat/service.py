@@ -9,7 +9,7 @@ from uuid import UUID
 
 import tiktoken
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, MediaRef
 from app.chat.repository import ChatRepository
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ CONTEXT_WINDOW_TOKENS = 8192
 RESPONSE_TOKENS = 1024
 SAFETY_MARGIN = 256
 DEFAULT_CONTEXT_WINDOW = 10
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5.2"
 TOKEN_ENCODING = tiktoken.get_encoding("o200k_base")
 
 
@@ -72,18 +72,46 @@ class ChatService:
 
         return await self._repository.list_messages(chat_id, limit=limit)
 
+    async def append_message(
+        self,
+        chat_id: UUID,
+        role: str,
+        content: str,
+        media_refs: MediaRef | None = None,
+    ) -> ChatMessage:
+        """Сохраняет сообщение в историю без запуска модели."""
+
+        await self._ensure_chat_exists(chat_id)
+        message = ChatMessage(
+            chat_id=chat_id,
+            role=role,
+            content=content,
+            media_refs=media_refs,
+        )
+        return await self._repository.append_message(chat_id, message)
+
     async def clear_history(self, chat_id: UUID) -> None:
         """Запускает мягкую очистку истории сообщений."""
 
         await self._ensure_chat_exists(chat_id)
         await self._repository.soft_delete_messages(chat_id)
 
-    async def send_message(self, chat_id: UUID, user_content: str) -> AsyncIterator[str]:
+    async def send_message(
+        self,
+        chat_id: UUID,
+        user_content: str,
+        media_refs: MediaRef | None = None,
+    ) -> AsyncIterator[str]:
         """Сохраняет запрос пользователя, стримит ответ и пишет его в историю."""
 
         await self._ensure_chat_exists(chat_id)
 
-        user_message = ChatMessage(chat_id=chat_id, role="user", content=user_content)
+        user_message = ChatMessage(
+            chat_id=chat_id,
+            role="user",
+            content=user_content,
+            media_refs=media_refs,
+        )
         await self._repository.append_message(chat_id, user_message)
 
         chat = await self._ensure_chat_exists(chat_id)
@@ -97,6 +125,7 @@ class ChatService:
             model=self._model,
             messages=llm_messages,
             stream=True,
+            stream_options={"include_usage": True},
         )
         stream_interrupted = False
 
@@ -141,10 +170,10 @@ class ChatService:
         self,
         chat: Chat,
         history: list[ChatMessage],
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, Any]]:
         """Преобразует чат и историю в формат OpenAI messages."""
 
-        messages: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
         if chat.system_prompt:
             messages.append({"role": "system", "content": chat.system_prompt})
 
@@ -156,7 +185,7 @@ class ChatService:
         messages.extend(summary_messages)
         return messages
 
-    async def _build_hybrid_context(self, history: list[ChatMessage]) -> list[dict[str, str]]:
+    async def _build_hybrid_context(self, history: list[ChatMessage]) -> list[dict[str, Any]]:
         """Строит гибридный контекст из summary и последних сообщений."""
 
         keep_recent = min(self._context_window, len(history))
@@ -194,24 +223,24 @@ class ChatService:
         return chat
 
 
-def count_tokens(messages: list[dict[str, str]]) -> int:
+def count_tokens(messages: list[dict[str, Any]]) -> int:
     """Подсчитывает примерное число токенов с учетом ChatML overhead."""
 
     total = 2
     for message in messages:
         total += 4
         total += len(TOKEN_ENCODING.encode(message["role"]))
-        total += len(TOKEN_ENCODING.encode(message["content"]))
+        total += len(TOKEN_ENCODING.encode(_flatten_content_for_tokens(message["content"])))
     return total
 
 
-def fit_to_budget(messages: list[dict[str, str]], budget: int) -> list[dict[str, str]]:
+def fit_to_budget(messages: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
     """Обрезает сообщения с начала, сохраняя системное сообщение, если оно есть."""
 
     if count_tokens(messages) <= budget:
         return messages
 
-    system_message: dict[str, str] | None = None
+    system_message: dict[str, Any] | None = None
     history = messages
     if messages and messages[0]["role"] == "system":
         system_message = messages[0]
@@ -228,13 +257,34 @@ def fit_to_budget(messages: list[dict[str, str]], budget: int) -> list[dict[str,
     return [system_message] if system_message and count_tokens([system_message]) <= budget else []
 
 
-def _to_openai_messages(history: list[ChatMessage]) -> list[dict[str, str]]:
+def _to_openai_messages(history: list[ChatMessage]) -> list[dict[str, Any]]:
     """Преобразует доменные сообщения в формат OpenAI API."""
 
-    return [
-        {
-            "role": message.role,
-            "content": message.content,
-        }
-        for message in history
-    ]
+    messages: list[dict[str, Any]] = []
+    for message in history:
+        if message.media_refs is None:
+            messages.append({"role": message.role, "content": message.content})
+            continue
+
+        parts: list[dict[str, Any]] = []
+        if message.content:
+            parts.append({"type": "text", "text": message.content})
+        parts.append(message.media_refs.part)
+        messages.append({"role": message.role, "content": parts})
+    return messages
+
+
+def _flatten_content_for_tokens(content: Any) -> str:
+    """Преобразует мультимодальный content в текст для грубой оценки токенов."""
+
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif part.get("type") == "image_url":
+                parts.append("[изображение]")
+        return "\n".join(parts)
+    return str(content)

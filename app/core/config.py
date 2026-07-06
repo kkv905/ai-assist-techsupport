@@ -17,7 +17,7 @@ class LLMSettings(BaseSettings):
     openai_api_key: SecretStr = Field(
         validation_alias=AliasChoices("LLM__OPENAI_API_KEY", "OPENAI_API_KEY"),
     )
-    default_model: str = "gpt-4o-mini"
+    default_model: str = "gpt-5.2"
     request_timeout: float = 30.0
     max_retries: int = 3
 
@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     chat_context_window_tokens: int = 8192
     chat_response_tokens: int = 1024
     chat_safety_margin: int = 256
+    bot_url: str = "http://bot:9000"
+    internal_token: SecretStr = SecretStr("change-me")
+    bot_api_port: int = 9000
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

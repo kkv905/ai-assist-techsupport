@@ -39,14 +39,18 @@ async def test_send_message_parses_sse_stream() -> None:
     chat_id = uuid4()
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        """Возвращает поток в формате SSE."""
+        """Возвращает поток в формате SSE с JSON-полезной нагрузкой."""
 
         assert request.method == "POST"
         assert request.url.path == f"/chats/{chat_id}/messages"
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            text="data: Часть 1\n\ndata:  и часть 2\n\ndata: [DONE]\n\n",
+            text=(
+                'data: {"type":"token","delta":"Часть 1"}\n\n'
+                'data: {"type":"token","delta":" и часть 2"}\n\n'
+                'data: {"type":"done"}\n\n'
+            ),
         )
 
     client = BackendClient("http://testserver", transport=httpx.MockTransport(handler))
@@ -56,6 +60,45 @@ async def test_send_message_parses_sse_stream() -> None:
         await client.aclose()
 
     assert chunks == ["Часть 1", " и часть 2"]
+
+
+@pytest.mark.asyncio
+async def test_send_message_sends_multipart_when_media_present() -> None:
+    """Проверяет, что медиа отправляется в backend как multipart/form-data."""
+
+    chat_id = uuid4()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        """Проверяет multipart-тело запроса с бинарным вложением."""
+
+        body = await request.aread()
+        assert request.method == "POST"
+        assert request.url.path == f"/chats/{chat_id}/messages"
+        assert "multipart/form-data" in request.headers["content-type"]
+        assert b'name="content"' in body
+        assert b'name="media"; filename="document.pdf"' in body
+        assert b"%PDF-test" in body
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text='data: {"type":"done"}\n\n',
+        )
+
+    client = BackendClient("http://testserver", transport=httpx.MockTransport(handler))
+    try:
+        chunks = [
+            chunk
+            async for chunk in client.send_message(
+                chat_id,
+                "Проверь документ",
+                media=b"%PDF-test",
+                mime="application/pdf",
+            )
+        ]
+    finally:
+        await client.aclose()
+
+    assert chunks == []
 
 
 @pytest.mark.asyncio

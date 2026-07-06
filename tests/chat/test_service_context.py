@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, MediaRef
 from app.chat.service import ChatNotFoundError, ChatService, fit_to_budget
 
 
@@ -97,10 +97,10 @@ class FakeChatCompletions:
         self._stream_chunks = stream_chunks
         self._fail_after_first = fail_after_first
 
-    async def create(self, *, model: str, messages: list[dict[str, str]], stream: bool):
+    async def create(self, *, model: str, messages: list[dict[str, object]], stream: bool, **kwargs):
         """Возвращает либо поток, либо синтетический summary-ответ."""
 
-        self.calls.append({"model": model, "messages": messages, "stream": stream})
+        self.calls.append({"model": model, "messages": messages, "stream": stream, **kwargs})
         if stream:
             return FakeStream(self._stream_chunks, fail_after_first=self._fail_after_first)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Сводка"))])
@@ -162,6 +162,29 @@ async def test_send_message_builds_sliding_window_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_message_restores_multimodal_parts_in_context() -> None:
+    """Проверяет восстановление сохраненной мультимодальной части при сборке контекста."""
+
+    repository = InMemoryChatRepository()
+    chat = await repository.create_chat("user-1", "web")
+    media_ref = MediaRef(
+        mime="image/jpeg",
+        size=123,
+        filename="image.jpg",
+        part={"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAA"}},
+    )
+    llm_client = FakeLLMClient(["Вижу изображение"])
+    service = ChatService(repository=repository, llm_client=llm_client, context_window_tokens=10000)
+
+    chunks = [chunk async for chunk in service.send_message(chat.id, "Опиши фото", media_refs=media_ref)]
+
+    assert chunks == ["Вижу изображение"]
+    payload = llm_client.chat.completions.calls[0]["messages"]
+    assert payload[0]["content"][0] == {"type": "text", "text": "Опиши фото"}
+    assert payload[0]["content"][1] == media_ref.part
+
+
+@pytest.mark.asyncio
 async def test_send_message_saves_partial_answer_when_stream_breaks() -> None:
     """Проверяет сохранение частичного ответа при аварийном завершении стрима."""
 
@@ -216,4 +239,3 @@ def test_fit_to_budget_keeps_system_message() -> None:
     trimmed = fit_to_budget(messages, budget=20)
 
     assert trimmed == [{"role": "system", "content": "Системные правила"}] or trimmed == []
-

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.chat.deps import ChatServiceDep
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, MediaRef
+from app.chat.media import media_to_part
+from app.core.config import get_settings
+from app.services.notifier import notify_user
 
 router = APIRouter(prefix="/chats", tags=["chat-history"])
 
@@ -29,16 +33,17 @@ class CreateChatOut(BaseModel):
     chat_id: UUID
 
 
-class MessageIn(BaseModel):
-    """Описывает входное сообщение пользователя."""
-
-    content: str = Field(min_length=1)
-
-
 class StatusOut(BaseModel):
     """Возвращает простой статус выполненной операции."""
 
     status: str
+
+
+class SystemMessageIn(BaseModel):
+    """Описывает системное сообщение, которое backend дописывает в чат."""
+
+    text: str
+    notify: bool = False
 
 
 @router.post("", response_model=CreateChatOut, status_code=status.HTTP_201_CREATED)
@@ -80,24 +85,78 @@ async def list_messages(
 @router.post("/{chat_id}/messages")
 async def send_message(
     chat_id: UUID,
-    payload: MessageIn,
-    chat_service: ChatServiceDep,
+    content: str = Form(...),
+    media: UploadFile | None = File(None),
+    chat_service: ChatServiceDep = ...,  # type: ignore[assignment]
 ) -> StreamingResponse:
-    """Стримит ответ модели в формате SSE и завершает поток событием `[DONE]`."""
+    """Стримит ответ модели в формате SSE и завершает поток событием done."""
 
     chat = await chat_service.get_chat(chat_id)
     if chat is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.")
 
+    media_refs: MediaRef | None = None
+    if media is not None:
+        try:
+            part = await media_to_part(media)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(error)) from error
+
+        size = getattr(media, "size", None)
+        if size is None:
+            await media.seek(0)
+            size = len(await media.read())
+        media_refs = MediaRef(
+            mime=media.content_type or "application/octet-stream",
+            size=size,
+            filename=media.filename,
+            part=part,
+        )
+
     async def event_stream() -> AsyncIterator[str]:
-        """Сериализует чанки модели в SSE-формат."""
+        """Сериализует чанки модели в SSE-формат с JSON-полезной нагрузкой."""
 
-        async for chunk in chat_service.send_message(chat_id, payload.content):
-            yield f"data: {chunk}\n\n"
+        async for delta in chat_service.send_message(chat_id, content, media_refs=media_refs):
+            payload = json.dumps({"type": "token", "delta": delta}, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
 
-        yield "data: [DONE]\n\n"
+        done_payload = json.dumps({"type": "done"}, ensure_ascii=False)
+        yield f"data: {done_payload}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/{chat_id}/system-message", response_model=StatusOut)
+async def post_system_message(
+    chat_id: UUID,
+    payload: SystemMessageIn,
+    chat_service: ChatServiceDep,
+) -> StatusOut:
+    """Добавляет системное сообщение и при необходимости отправляет уведомление в бот."""
+
+    chat = await chat_service.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.")
+
+    await chat_service.append_message(chat_id=chat_id, role="assistant", content=payload.text)
+
+    if payload.notify:
+        try:
+            chat_id_tg = int(chat.owner_external_id)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Для уведомлений owner_external_id должен быть Telegram chat_id.",
+            ) from error
+        settings = get_settings()
+        await notify_user(
+            chat_id_tg=chat_id_tg,
+            text=payload.text,
+            bot_url=settings.bot_url,
+            internal_token=settings.internal_token.get_secret_value(),
+        )
+
+    return StatusOut(status="ok")
 
 
 @router.delete("/{chat_id}/messages", response_model=StatusOut)

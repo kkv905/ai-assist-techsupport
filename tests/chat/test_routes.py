@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from app.chat.deps import get_chat_service
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, MediaRef
 from app.main import app
 
 
@@ -21,7 +21,7 @@ class FakeChatService:
 
         self.chat = Chat(
             id=uuid4(),
-            owner_external_id="tg-1",
+            owner_external_id="123456",
             interface="telegram",
             system_prompt="Ты помощник",
             created_at=datetime.now(UTC),
@@ -31,6 +31,8 @@ class FakeChatService:
             ChatMessage(chat_id=self.chat.id, role="assistant", content="Здравствуйте"),
         ]
         self.cleared = False
+        self.sent_payloads: list[tuple[str, MediaRef | None]] = []
+        self.appended: list[tuple[str, str]] = []
 
     async def create_chat(
         self,
@@ -61,11 +63,29 @@ class FakeChatService:
 
         return self.messages[-limit:]
 
-    async def send_message(self, chat_id: UUID, user_content: str) -> AsyncIterator[str]:
-        """Отдает потоковый ответ из двух частей."""
+    async def send_message(
+        self,
+        chat_id: UUID,
+        user_content: str,
+        media_refs: MediaRef | None = None,
+    ) -> AsyncIterator[str]:
+        """Отдает потоковый ответ из двух частей и сохраняет входной payload."""
 
+        self.sent_payloads.append((user_content, media_refs))
         yield "Часть 1"
         yield " и часть 2"
+
+    async def append_message(
+        self,
+        chat_id: UUID,
+        role: str,
+        content: str,
+        media_refs: MediaRef | None = None,
+    ) -> ChatMessage:
+        """Запоминает системные сообщения, дописанные без запуска модели."""
+
+        self.appended.append((role, content))
+        return ChatMessage(chat_id=chat_id, role=role, content=content, media_refs=media_refs)
 
     async def clear_history(self, chat_id: UUID) -> None:
         """Помечает историю как очищенную."""
@@ -107,7 +127,7 @@ def test_get_chat_route_returns_metadata() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json()["owner_external_id"] == "tg-1"
+    assert response.json()["owner_external_id"] == "123456"
     assert response.json()["interface"] == "telegram"
 
 
@@ -136,16 +156,37 @@ def test_send_message_route_returns_sse_stream() -> None:
             with client.stream(
                 "POST",
                 f"/chats/{fake_service.chat.id}/messages",
-                json={"content": "Привет"},
+                data={"content": "Привет"},
             ) as response:
                 body = "".join(response.iter_text())
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert "data: Часть 1" in body
-    assert "data:  и часть 2" in body
-    assert "data: [DONE]" in body
+    assert 'data: {"type": "token", "delta": "Часть 1"}' in body
+    assert 'data: {"type": "token", "delta": " и часть 2"}' in body
+    assert 'data: {"type": "done"}' in body
+    assert fake_service.sent_payloads[0][0] == "Привет"
+    assert fake_service.sent_payloads[0][1] is None
+
+
+def test_system_message_route_appends_message() -> None:
+    """Проверяет добавление системного сообщения без запуска модели."""
+
+    fake_service = FakeChatService()
+    app.dependency_overrides[get_chat_service] = lambda: fake_service
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/chats/{fake_service.chat.id}/system-message",
+                json={"text": "Фоновая задача завершена", "notify": False},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert fake_service.appended == [("assistant", "Фоновая задача завершена")]
 
 
 def test_delete_messages_route_returns_ok() -> None:

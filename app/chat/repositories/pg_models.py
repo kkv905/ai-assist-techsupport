@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, Uuid, func, text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, Text, Uuid, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -50,6 +51,7 @@ class ChatMessageRow(Base):
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    media_refs: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

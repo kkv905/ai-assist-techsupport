@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.handlers.common import format_backend_error, resolve_chat_id, stream_text_answer
+from bot.handlers.common import format_backend_error, resolve_chat_id, stream_to_chat
 from bot.keyboards.inline import get_topic_title, topics_kb
 from bot.services.backend_client import BackendClient
 from bot.states import AskFlow
@@ -67,13 +67,12 @@ async def ask_question_handler(
     topic_slug = data.get("topic", "")
     topic_title = get_topic_title(topic_slug)
     prompt = f"Тема: {topic_title}. Вопрос: {message.text}"
-    answer_message = await message.answer("Отправляю вопрос...")
 
     try:
         chat_id = await resolve_chat_id(backend, message.from_user.id)
-        await stream_text_answer(answer_message, backend.send_message(chat_id, prompt))
+        await stream_to_chat(message, backend.send_message(chat_id, prompt))
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as error:
-        await answer_message.edit_text(format_backend_error(error))
+        await message.answer(format_backend_error(error))
         return
 
     await state.clear()
