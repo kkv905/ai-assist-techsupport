@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 
 from app.core.config import Settings, get_settings as load_settings
 from app.services.llm import LLMService
+from app.services.vector_store import VectorStore
 
 
 @lru_cache
@@ -28,6 +29,12 @@ def get_cache(request: Request) -> Redis:
     return request.app.state.cache
 
 
+def get_vector_store(request: Request) -> VectorStore:
+    """Возвращает singleton Qdrant-клиента, созданный в FastAPI lifespan."""
+
+    return request.app.state.vector_store
+
+
 def get_llm_service(
     openai: AsyncOpenAI = Depends(get_openai),
     cache: Redis = Depends(get_cache),
@@ -41,3 +48,4 @@ def get_llm_service(
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 CacheDep = Annotated[Redis, Depends(get_cache)]
 LLMServiceDep = Annotated[LLMService, Depends(get_llm_service)]
+VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

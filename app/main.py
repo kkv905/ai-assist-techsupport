@@ -24,6 +24,7 @@ from app.observability.tracing import setup_tracing
 from app.routers.chat import router as chat_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
+from app.services.vector_store import VectorStore
 
 logger = structlog.get_logger("app.http")
 
@@ -58,12 +59,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_retries=settings.llm.max_retries,
     )
     app.state.cache = Redis.from_url(build_redis_url(settings), decode_responses=True)
+    app.state.vector_store = VectorStore(
+        url=settings.qdrant_url,
+        api_key=(settings.qdrant_api_key.get_secret_value() if settings.qdrant_api_key else None),
+        collection=settings.qdrant_collection,
+        dim=settings.embedding_dim,
+    )
+    try:
+        await app.state.vector_store.ensure_collection()
+    except Exception:
+        # Поиск пока не участвует в критическом пути старого chat API. Сервис
+        # стартует без Qdrant для локальной разработки, но ошибка остаётся в логах.
+        logger.warning("vector_store_initialization_failed", exc_info=True)
 
     try:
         yield
     finally:
         await app.state.openai.close()
         await app.state.cache.aclose()
+        await app.state.vector_store.close()
 
 
 def create_app() -> FastAPI:

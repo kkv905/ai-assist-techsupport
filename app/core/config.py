@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 16
     embedding_cache_dir: Path = Path("./var/embeddings")
     embedding_max_retries: int = 3
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = "documents"
+    embedding_dim: int = 1024
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
