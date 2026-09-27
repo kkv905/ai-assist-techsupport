@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     qdrant_api_key: SecretStr | None = None
     qdrant_collection: str = "documents"
     embedding_dim: int = 1024
+    rag_collection: str = "rag_block_03"
+    rag_baremetal_collection: str = "rag_block_03_baremetal"
+    rag_data_dir: Path = Path("data/rag-block-03")
+    rag_chunk_size: int = 512
+    rag_chunk_overlap: int = 64
+    rag_similarity_top_k: int = 3
+    rag_score_threshold: float = 0.35
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

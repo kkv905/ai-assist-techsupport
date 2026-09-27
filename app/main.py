@@ -24,6 +24,8 @@ from app.observability.tracing import setup_tracing
 from app.routers.chat import router as chat_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
+from app.routers.rag import router as rag_router
+from app.services.rag import RAGService
 from app.services.vector_store import VectorStore
 
 logger = structlog.get_logger("app.http")
@@ -65,12 +67,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         collection=settings.qdrant_collection,
         dim=settings.embedding_dim,
     )
+    vector_store_ready = False
     try:
         await app.state.vector_store.ensure_collection()
+        vector_store_ready = True
     except Exception:
         # Поиск пока не участвует в критическом пути старого chat API. Сервис
         # стартует без Qdrant для локальной разработки, но ошибка остаётся в логах.
         logger.warning("vector_store_initialization_failed", exc_info=True)
+
+    app.state.rag_service = RAGService.from_settings(settings)
+    if vector_store_ready:
+        try:
+            # RAGService использует синхронные клиенты LlamaIndex/Qdrant; индексируем
+            # в worker thread, но ровно один раз за время жизни приложения.
+            import anyio
+
+            await anyio.to_thread.run_sync(app.state.rag_service.build)
+        except Exception:
+            logger.warning("rag_initialization_failed", exc_info=True)
 
     try:
         yield
@@ -78,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.openai.close()
         await app.state.cache.aclose()
         await app.state.vector_store.close()
+        app.state.rag_service.close()
 
 
 def create_app() -> FastAPI:
@@ -177,6 +193,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(chat_history_router)
     app.include_router(admin_router)
+    app.include_router(rag_router)
     return app
 
 

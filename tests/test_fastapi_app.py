@@ -120,3 +120,26 @@ def test_validation_error_has_unified_format() -> None:
     assert response.json()["error"]["code"] == "validation_error"
     assert response.json()["error"]["details"]
     assert response.headers["X-Request-ID"]
+
+
+def test_rag_endpoint_uses_prebuilt_service() -> None:
+    class FakeRAGService:
+        ready = True
+
+        def answer(self, question: str) -> dict:
+            return {
+                "answer": f"RAG: {question}",
+                "top_score": 0.91,
+                "sources": [{"text": "Фрагмент", "source": "guide.md", "score": 0.91}],
+            }
+
+        def close(self) -> None:
+            pass
+
+    with TestClient(app) as client:
+        app.state.rag_service = FakeRAGService()
+        response = client.post("/rag/query", json={"question": "Как настроить VPN?"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "RAG: Как настроить VPN?"
+    assert response.json()["sources"][0]["source"] == "guide.md"

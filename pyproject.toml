@@ -32,6 +32,10 @@ dependencies = [
     "tiktoken>=0.13.0",
     "tqdm>=4.67.1",
     "uvicorn[standard]>=0.49.0",
+    "llama-index>=0.14.25",
+    "llama-index-vector-stores-qdrant>=0.10.3",
+    "llama-index-readers-file>=0.7.0",
+    "llama-index-embeddings-huggingface>=0.8.0",
 ]
 
 [dependency-groups]
