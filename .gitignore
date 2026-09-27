@@ -209,6 +209,7 @@ __marimo__/
 # Logs
 logs/
 tasks/
+var/embeddings/
 
 # OS
 .DS_Store
@@ -220,3 +221,7 @@ Thumbs.db
 
 # Agents
 .agents
+AGENTS.md
+
+# временная папка pytest
+.pytest-temp/

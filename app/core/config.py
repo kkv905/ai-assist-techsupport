@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     moderation_keywords_path: Path = Path("app/moderation/moderation_keywords.yaml")
     moderation_openai_enabled: bool = False
     moderation_category_thresholds: dict[str, float] = Field(default_factory=dict)
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_batch_size: int = 16
+    embedding_cache_dir: Path = Path("./var/embeddings")
+    embedding_max_retries: int = 3
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
