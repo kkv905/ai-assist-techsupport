@@ -69,7 +69,11 @@ class Settings(BaseSettings):
     rag_data_dir: Path = Path("data/rag-block-03")
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
-    rag_similarity_top_k: int = 3
+    # M5B4: best measured setup is recursive 512/64 with 10 candidates.
+    rag_similarity_top_k: int = 10
+    rag_chunking_strategy: Literal["fixed", "recursive", "semantic"] = "recursive"
+    rag_reranker_enabled: bool = False
+    rag_reranker_model: str = "BAAI/bge-reranker-v2-m3"
     rag_score_threshold: float = 0.35
     llm: LLMSettings = Field(default_factory=LLMSettings)
 

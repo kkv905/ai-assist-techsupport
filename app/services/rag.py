@@ -34,6 +34,9 @@ class RAGService:
     chunk_overlap: int
     similarity_top_k: int
     score_threshold: float
+    chunking_strategy: str = "recursive"
+    reranker_enabled: bool = False
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     _client: QdrantClient | None = field(default=None, init=False, repr=False)
     _index: Any = field(default=None, init=False, repr=False)
 
@@ -52,6 +55,9 @@ class RAGService:
             chunk_overlap=settings.rag_chunk_overlap,
             similarity_top_k=settings.rag_similarity_top_k,
             score_threshold=settings.rag_score_threshold,
+            chunking_strategy=settings.rag_chunking_strategy,
+            reranker_enabled=settings.rag_reranker_enabled,
+            reranker_model=settings.rag_reranker_model,
         )
 
     @property
@@ -69,7 +75,6 @@ class RAGService:
 
         from llama_index.core import Settings as LlamaSettings
         from llama_index.core import SimpleDirectoryReader, StorageContext, VectorStoreIndex
-        from llama_index.core.node_parser import SentenceSplitter
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         from llama_index.llms.openai import OpenAI
         from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -78,9 +83,10 @@ class RAGService:
         self._ensure_collection()
         LlamaSettings.embed_model = HuggingFaceEmbedding(model_name=self.embedding_model)
         LlamaSettings.llm = OpenAI(model=self.llm_model, api_key=self.openai_api_key)
-        LlamaSettings.node_parser = SentenceSplitter(
-            chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
-        )
+        from app.services.chunking import STRATEGIES
+
+        if self.chunking_strategy not in STRATEGIES:
+            raise ValueError(f"Unknown RAG chunking strategy: {self.chunking_strategy}")
         vector_store = QdrantVectorStore(client=self._client, collection_name=self.collection)
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
         if self._client.count(self.collection, exact=True).count:
@@ -90,7 +96,12 @@ class RAGService:
         documents = SimpleDirectoryReader(input_dir=str(self.data_dir), recursive=True).load_data()
         if not documents:
             raise ValueError(f"RAG corpus {self.data_dir} does not contain readable documents.")
-        self._index = VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+        strategy = STRATEGIES[self.chunking_strategy]
+        kwargs: dict[str, Any] = {"chunk_size": self.chunk_size, "chunk_overlap": self.chunk_overlap}
+        if self.chunking_strategy == "semantic":
+            kwargs = {"embed_model": LlamaSettings.embed_model}
+        nodes = strategy(documents, **kwargs)
+        self._index = VectorStoreIndex(nodes, storage_context=storage_context)
 
     def answer(self, question: str) -> dict[str, Any]:
         """Возвращает унифицированный ответ и до трёх лучших source nodes."""
@@ -101,6 +112,10 @@ class RAGService:
             raise ValueError("Вопрос не должен быть пустым.")
         retriever = self._index.as_retriever(similarity_top_k=self.similarity_top_k)
         nodes = retriever.retrieve(question)
+        if self.reranker_enabled:
+            from app.services.reranker import CrossEncoderReranker
+
+            nodes = CrossEncoderReranker(self.reranker_model).rerank(question, nodes, top_n=3)
         sources = [self._source(node) for node in nodes]
         top_score = sources[0]["score"] if sources else 0.0
         if top_score < self.score_threshold:
