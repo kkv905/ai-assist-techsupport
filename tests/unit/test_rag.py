@@ -26,8 +26,15 @@ def test_rag_returns_fallback_without_calling_llm() -> None:
     assert result["answer"] == NOT_FOUND_ANSWER
     assert result["top_score"] == 0.1
     assert result["sources"] == [
-        {"text": "нерелевантный фрагмент", "source": "x.txt", "score": 0.1}
+        {
+            "id": "1",
+            "file_name": "x.txt",
+            "page": None,
+            "score": 0.1,
+            "snippet": "нерелевантный фрагмент",
+        }
     ]
+    assert result["confident"] is False
 
 
 def test_baremetal_reader_chunks_markdown_and_text(tmp_path) -> None:

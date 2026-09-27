@@ -17,6 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY app/ ./app/
 COPY bot/ ./bot/
+COPY data/ ./data/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY pyproject.toml uv.lock ./

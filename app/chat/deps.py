@@ -82,6 +82,7 @@ def get_moderation_service(
 
 
 def get_chat_service(
+    request: Request,
     repository: ChatRepository = Depends(get_repository),
     llm_client: Any = Depends(get_llm_client),
     moderation_service: ModerationService = Depends(get_moderation_service),
@@ -99,6 +100,7 @@ def get_chat_service(
         context_window_tokens=settings.chat_context_window_tokens,
         response_tokens=settings.chat_response_tokens,
         safety_margin=settings.chat_safety_margin,
+        rag_service=getattr(request.app.state, "rag_service", None),
     )
 
 

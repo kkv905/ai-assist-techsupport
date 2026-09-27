@@ -24,7 +24,7 @@ from app.observability.tracing import setup_tracing
 from app.routers.chat import router as chat_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
-from app.routers.rag import router as rag_router
+from app.routers.rag import documents_router, router as rag_router
 from app.services.rag import RAGService
 from app.services.vector_store import VectorStore
 
@@ -194,6 +194,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_history_router)
     app.include_router(admin_router)
     app.include_router(rag_router)
+    app.include_router(documents_router)
     return app
 
 

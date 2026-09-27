@@ -47,6 +47,7 @@ class ChatService:
         context_window_tokens: int = CONTEXT_WINDOW_TOKENS,
         response_tokens: int = RESPONSE_TOKENS,
         safety_margin: int = SAFETY_MARGIN,
+        rag_service: Any | None = None,
     ) -> None:
         """Сохраняет зависимости и параметры формирования контекста."""
 
@@ -59,6 +60,7 @@ class ChatService:
         self._context_window_tokens = context_window_tokens
         self._response_tokens = response_tokens
         self._safety_margin = safety_margin
+        self._rag_service = rag_service
 
     async def create_chat(
         self,
@@ -148,7 +150,28 @@ class ChatService:
         await self._repository.append_message(chat_id, user_message)
 
         history = await self._load_history(chat_id)
+        rag_result: dict[str, Any] | None = None
+        if self._rag_service is not None and self._rag_service.ready and media_refs is None:
+            history_for_rag = [{"role": message.role, "content": message.content} for message in history[:-1]]
+            rag_result = self._rag_service.answer(user_content, history_for_rag)
+            if not rag_result["confident"]:
+                assistant_content = rag_result["answer"]
+                stored = await self._repository.append_message(
+                    chat_id, ChatMessage(chat_id=chat_id, role="assistant", content=assistant_content)
+                )
+                yield ChatStreamEvent(type="token", delta=assistant_content)
+                yield ChatStreamEvent(type="sources", sources=rag_result["sources"])
+                yield ChatStreamEvent(type="done", message_id=stored.id)
+                return
         llm_messages = await self._build_context(chat, history)
+        if rag_result is not None:
+            context = "\n".join(
+                f"[{i}] {source['snippet']}" for i, source in enumerate(rag_result["sources"], start=1)
+            )
+            llm_messages.insert(0, {"role": "system", "content": (
+                "Отвечай только по приведённому контексту и ставь ссылки [1], [2]. "
+                "Если данных нет, скажи: По базе не нашёл, могу эскалировать.\n" + context
+            )})
         budget = self._context_window_tokens - self._response_tokens - self._safety_margin
         llm_messages = fit_to_budget(llm_messages, budget)
 
@@ -209,6 +232,8 @@ class ChatService:
 
         for chunk in answer_parts:
             yield ChatStreamEvent(type="token", delta=chunk)
+        if rag_result is not None:
+            yield ChatStreamEvent(type="sources", sources=rag_result["sources"])
         yield ChatStreamEvent(type="done", message_id=assistant_message_id)
 
     async def _load_history(self, chat_id: UUID) -> list[ChatMessage]:

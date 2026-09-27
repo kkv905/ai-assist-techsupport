@@ -51,9 +51,10 @@ class Chat(BaseModel):
 class ChatStreamEvent(BaseModel):
     """Описывает одно событие потокового ответа backend."""
 
-    type: Literal["token", "done"]
+    type: Literal["token", "sources", "done"]
     delta: str | None = None
     message_id: UUID | None = None
+    sources: list[dict[str, Any]] | None = None
 
 
 class MessageFeedback(BaseModel):

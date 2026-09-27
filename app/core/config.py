@@ -66,7 +66,8 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     rag_collection: str = "rag_block_03"
     rag_baremetal_collection: str = "rag_block_03_baremetal"
-    rag_data_dir: Path = Path("data/rag-block-03")
+    rag_data_dir: Path = Path("data")
+    rag_docstore_dir: Path = Path("var/rag_docstore")
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
     # M5B4: best measured setup is recursive 512/64 with 10 candidates.
@@ -74,7 +75,7 @@ class Settings(BaseSettings):
     rag_chunking_strategy: Literal["fixed", "recursive", "semantic"] = "recursive"
     rag_reranker_enabled: bool = False
     rag_reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    rag_score_threshold: float = 0.35
+    rag_score_threshold: float = 0.3
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

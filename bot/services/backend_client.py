@@ -23,6 +23,7 @@ class BackendStreamEvent:
     type: str
     delta: str | None = None
     message_id: UUID | None = None
+    sources: list[dict[str, Any]] | None = None
 
 
 class BackendClient:
@@ -94,6 +95,7 @@ class BackendClient:
                     type=payload.get("type", "token"),
                     delta=payload.get("delta"),
                     message_id=UUID(message_id) if message_id else None,
+                    sources=payload.get("sources"),
                 )
         finally:
             await response.aclose()
