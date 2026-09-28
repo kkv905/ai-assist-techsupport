@@ -130,7 +130,13 @@ def test_rag_endpoint_uses_prebuilt_service() -> None:
             return {
                 "answer": f"RAG: {question}",
                 "top_score": 0.91,
-                "sources": [{"text": "Фрагмент", "source": "guide.md", "score": 0.91}],
+                "sources": [{
+                    "id": "guide.md:1",
+                    "file_name": "guide.md",
+                    "score": 0.91,
+                    "snippet": "Фрагмент",
+                }],
+                "confident": True,
             }
 
         def close(self) -> None:
@@ -142,4 +148,4 @@ def test_rag_endpoint_uses_prebuilt_service() -> None:
 
     assert response.status_code == 200
     assert response.json()["answer"] == "RAG: Как настроить VPN?"
-    assert response.json()["sources"][0]["source"] == "guide.md"
+    assert response.json()["sources"][0]["file_name"] == "guide.md"
