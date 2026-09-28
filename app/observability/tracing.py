@@ -4,11 +4,39 @@ import logging
 import os
 import tempfile
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterator
 from urllib.parse import urlparse, urlunparse
 
 _TRACING_INITIALIZED = False
+_TRACER_PROVIDER: Any | None = None
 
+
+@contextmanager
+def rag_span(name: str, attributes: dict[str, Any]) -> Iterator[Any | None]:
+    """Создаёт Phoenix-совместимый прикладной спан без обязательной зависимости.
+
+    LlamaIndex автоматически трассирует не все низкоуровневые вызовы retriever-а.
+    Явный спан сохраняет в Phoenix параметры retrieval и число найденных чанков.
+    При отключённом optional extra `tracing` RAG продолжает работать как прежде.
+    """
+
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        yield None
+        return
+
+    tracer = (
+        _TRACER_PROVIDER.get_tracer("app.rag")
+        if _TRACER_PROVIDER is not None
+        else trace.get_tracer("app.rag")
+    )
+    with tracer.start_as_current_span(name) as span:
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+        yield span
 
 def _resolve_phoenix_working_dir() -> str:
     """Подбирает каталог Phoenix с гарантированной возможностью записи."""
@@ -55,7 +83,7 @@ def setup_tracing(
 ) -> None:
     """Подключает Phoenix и автоинструментацию OpenAI до создания клиента SDK."""
 
-    global _TRACING_INITIALIZED
+    global _TRACING_INITIALIZED, _TRACER_PROVIDER
 
     if _TRACING_INITIALIZED or not enabled:
         return
@@ -85,6 +113,7 @@ def setup_tracing(
                 category=DeprecationWarning,
             )
             from openinference.instrumentation.openai import OpenAIInstrumentor
+            from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
             from phoenix.otel import register
     except ImportError:
         logging.getLogger(__name__).warning(
@@ -104,10 +133,21 @@ def setup_tracing(
         endpoint=normalized_endpoint,
         protocol="http/protobuf",
     )
+    # В окружениях с уже установленным глобальным provider-ом OpenTelemetry не
+    # позволяет заменить его. Сохраняем provider Phoenix явно, чтобы ручные
+    # RAG-спаны гарантированно экспортировались и в таком запуске.
+    _TRACER_PROVIDER = tracer_provider
     instrumentor = OpenAIInstrumentor()
     is_instrumented = getattr(instrumentor, "is_instrumented_by_opentelemetry", False)
     if callable(is_instrumented):
         is_instrumented = is_instrumented()
     if not is_instrumented:
         instrumentor.instrument(tracer_provider=tracer_provider)
+    try:
+        llama_instrumentor = LlamaIndexInstrumentor()
+        llama_instrumentor.instrument(tracer_provider=tracer_provider)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Не удалось подключить LlamaIndex-инструментацию.", exc_info=True
+        )
     _TRACING_INITIALIZED = True

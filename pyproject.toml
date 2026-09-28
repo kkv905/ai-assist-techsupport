@@ -8,14 +8,12 @@ dependencies = [
     "aiofiles>=25.1.0",
     "aiogram>=3.29.1",
     "alembic>=1.18.5",
-    "arize-phoenix>=17.12.0",
     "asyncio>=4.0.0",
     "dotenv>=0.9.9",
     "fastapi>=0.137.0",
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
     "openai>=2.38.0",
-    "openinference-instrumentation-openai>=0.1.52",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
     "pypdf>=6.1.3",
@@ -38,6 +36,21 @@ dependencies = [
     "llama-index-embeddings-huggingface>=0.8.0",
 ]
 
+[project.optional-dependencies]
+eval = [
+    "ragas>=0.4,<0.5",
+    "langchain-community<0.4",
+    "pandas>=2",
+    "arize-phoenix>=5",
+]
+tracing = [
+    "arize-phoenix>=5",
+    "openinference-instrumentation-openai>=0.1.52",
+    "openinference-instrumentation-llama-index>=3,<4",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+]
+
 [dependency-groups]
 dev = [
     "mypy>=2.1.0",
@@ -58,4 +71,3 @@ ignore = ["F401", "E501"]
 [tool.pytest.ini_options]
 addopts = "-p no:phoenix -p no:cacheprovider --basetemp=.pytest-temp"
 testpaths = ["tests"]
-

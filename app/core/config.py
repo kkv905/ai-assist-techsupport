@@ -70,12 +70,20 @@ class Settings(BaseSettings):
     rag_docstore_dir: Path = Path("var/rag_docstore")
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
-    # M5B4: best measured setup is recursive 512/64 with 10 candidates.
-    rag_similarity_top_k: int = 10
+    # M5B6: selected after isolated A/B evaluation (512/64, top-K 5).
+    rag_similarity_top_k: int = 5
     rag_chunking_strategy: Literal["fixed", "recursive", "semantic"] = "recursive"
     rag_reranker_enabled: bool = False
     rag_reranker_model: str = "BAAI/bge-reranker-v2-m3"
     rag_score_threshold: float = 0.3
+    # Judge is deliberately independent from the model serving end users.
+    rag_eval_judge_model: str = "deepseek-chat"
+    rag_eval_judge_base_url: str = "https://api.deepseek.com"
+    rag_eval_judge_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RAG_EVAL_JUDGE_API_KEY", "DEEPSEEK_API_KEY"),
+    )
+    rag_eval_embedding_model: str = "text-embedding-3-small"
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 

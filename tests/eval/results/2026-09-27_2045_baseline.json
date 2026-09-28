@@ -1,0 +1,9 @@
+{
+  "label": "baseline",
+  "rows": 31,
+  "judge_model": "deepseek-chat",
+  "embedding_model": "text-embedding-3-small",
+  "metrics": {
+    "latency_ms": 6113.1138709677425
+  }
+}

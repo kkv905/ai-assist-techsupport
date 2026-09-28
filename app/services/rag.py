@@ -11,6 +11,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from app.core.config import Settings
+from app.observability.tracing import rag_span
 from app.services.ingestion import SUPPORTED_SUFFIXES, load_documents
 
 logger = logging.getLogger(__name__)
@@ -93,23 +94,41 @@ class RAGService:
         question = question.strip()
         if not question:
             raise ValueError("Вопрос не должен быть пустым.")
-        retrieval_question = self._condense(question, history or [])
-        nodes = self._index.as_retriever(similarity_top_k=self.similarity_top_k).retrieve(retrieval_question)
-        if self.reranker_enabled and nodes:
-            from app.services.reranker import CrossEncoderReranker
-            nodes = CrossEncoderReranker(self.reranker_model).rerank(retrieval_question, nodes, top_n=5)
-        sources = [self._source(node, number) for number, node in enumerate(nodes[:5], start=1)]
-        top_score = sources[0]["score"] if sources else 0.0
-        if top_score < self.score_threshold:
-            logger.info("rag_score_guard", extra={"top_score": top_score, "threshold": self.score_threshold})
-            return {"answer": NOT_FOUND_ANSWER, "top_score": top_score, "sources": sources, "confident": False}
+        with rag_span(
+            "RAG query",
+            {
+                "openinference.span.kind": "CHAIN",
+                "input.value": question,
+                "rag.score_threshold": self.score_threshold,
+            },
+        ):
+            retrieval_question, nodes = self._retrieve(question, history or [])
+            sources = [self._source(node, number) for number, node in enumerate(nodes[:5], start=1)]
+            top_score = sources[0]["score"] if sources else 0.0
+            if top_score < self.score_threshold:
+                logger.info("rag_score_guard", extra={"top_score": top_score, "threshold": self.score_threshold})
+                return {"answer": NOT_FOUND_ANSWER, "top_score": top_score, "sources": sources, "confident": False}
 
-        from llama_index.core import PromptTemplate
-        response = self._index.as_query_engine(
-            similarity_top_k=self.similarity_top_k, text_qa_template=PromptTemplate(RAG_PROMPT)
-        ).query(retrieval_question)
-        response_sources = [self._source(node, number) for number, node in enumerate(response.source_nodes[:5], start=1)]
-        return {"answer": str(response), "top_score": top_score, "sources": response_sources or sources, "confident": True}
+            answer = self._synthesize(retrieval_question, nodes)
+            return {"answer": answer, "top_score": top_score, "sources": sources, "confident": True}
+
+    def evaluate_inputs(self, question: str) -> dict[str, Any]:
+        """Return one RAG answer and the untruncated chunks used to produce it.
+
+        This is intentionally separate from the HTTP schema: evaluators need the
+        complete node text, whereas clients should receive short safe snippets.
+        """
+        if not self.ready:
+            raise RuntimeError("RAG index has not been built.")
+        question = question.strip()
+        if not question:
+            raise ValueError("Вопрос не должен быть пустым.")
+        retrieval_question, nodes = self._retrieve(question, [])
+        contexts = [self._node_text(node) for node in nodes]
+        top_score = float(nodes[0].score or 0.0) if nodes else 0.0
+        if top_score < self.score_threshold:
+            return {"answer": NOT_FOUND_ANSWER, "retrieved_contexts": contexts}
+        return {"answer": self._synthesize(retrieval_question, nodes), "retrieved_contexts": contexts}
 
     def close(self) -> None:
         if self._client is not None:
@@ -147,6 +166,46 @@ class RAGService:
         previous = "\n".join(f"{item['role']}: {item['content']}" for item in history[-4:])
         return f"{previous}\nuser: {question}"
 
+    def _retrieve(self, question: str, history: list[dict[str, str]]) -> tuple[str, list[Any]]:
+        """Retrieve exactly once, including the optional reranking stage."""
+        retrieval_question = self._condense(question, history)
+        with rag_span(
+            "RAG retrieval",
+            {
+                "openinference.span.kind": "RETRIEVER",
+                "input.value": retrieval_question,
+                "rag.similarity_top_k": self.similarity_top_k,
+                "rag.reranker_enabled": self.reranker_enabled,
+            },
+        ) as span:
+            nodes = self._index.as_retriever(similarity_top_k=self.similarity_top_k).retrieve(retrieval_question)
+            if self.reranker_enabled and nodes:
+                from app.services.reranker import CrossEncoderReranker
+
+                nodes = CrossEncoderReranker(self.reranker_model).rerank(retrieval_question, nodes, top_n=5)
+            if span is not None:
+                span.set_attribute("rag.retrieved_document_count", len(nodes))
+        return retrieval_question, nodes
+
+    def _synthesize(self, question: str, nodes: list[Any]) -> str:
+        from llama_index.core import PromptTemplate, get_response_synthesizer
+
+        with rag_span(
+            "RAG synthesis",
+            {
+                "openinference.span.kind": "CHAIN",
+                "input.value": question,
+                "rag.context_count": len(nodes),
+            },
+        ):
+            synthesizer = get_response_synthesizer(text_qa_template=PromptTemplate(RAG_PROMPT))
+            return str(synthesizer.synthesize(question, nodes))
+
+    @staticmethod
+    def _node_text(node: Any) -> str:
+        get_content = getattr(node, "get_content", None)
+        return str(get_content() if callable(get_content) else node.text)
+
     def _validate(self) -> None:
         if not self.data_dir.is_dir():
             raise FileNotFoundError(f"RAG corpus directory is missing: {self.data_dir}")
@@ -163,4 +222,4 @@ class RAGService:
         metadata = node.metadata or {}
         return {"id": str(getattr(node, "node_id", number)), "file_name": metadata.get("file_name") or metadata.get("source"),
                 "page": metadata.get("page_label") or metadata.get("page"), "score": round(float(node.score or 0.0), 3),
-                "snippet": node.text[:300]}
+                "snippet": RAGService._node_text(node)[:300]}

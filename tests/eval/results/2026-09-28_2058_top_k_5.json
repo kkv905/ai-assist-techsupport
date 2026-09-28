@@ -1,0 +1,14 @@
+{
+  "label": "top_k_5",
+  "rows": 31,
+  "judge_model": "deepseek-chat",
+  "embedding_model": "text-embedding-3-small",
+  "metrics": {
+    "faithfulness": 0.7096774193548387,
+    "answer_relevancy": 0.5257403161779975,
+    "context_precision": 0.6428571428357143,
+    "context_recall": 0.6451612903225806,
+    "has_citation": 0.7096774193548387,
+    "latency_ms": 7573.483870967741
+  }
+}
