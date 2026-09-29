@@ -34,6 +34,10 @@ dependencies = [
     "llama-index-vector-stores-qdrant>=0.10.3",
     "llama-index-readers-file>=0.7.0",
     "llama-index-embeddings-huggingface>=0.8.0",
+    "langchain>=1.0,<2",
+    "langchain-core>=1.0,<2",
+    "langchain-openai>=1.0",
+    "langgraph>=1.0,<2",
 ]
 
 [project.optional-dependencies]
