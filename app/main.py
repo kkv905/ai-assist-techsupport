@@ -22,10 +22,12 @@ from app.core.exceptions import LLMAuthError, LLMError, LLMRateLimitError, LLMTi
 from app.observability.logging import setup_logging
 from app.observability.tracing import setup_tracing
 from app.routers.chat import router as chat_router
+from app.routers.agent import router as agent_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 from app.routers.rag import documents_router, router as rag_router
 from app.services.rag import RAGService
+from app.services.agent_persistent import agent_lifespan
 from app.services.vector_store import VectorStore
 
 logger = structlog.get_logger("app.http")
@@ -88,7 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("rag_initialization_failed", exc_info=True)
 
     try:
-        yield
+        async with agent_lifespan(settings) as (agent_graph, checkpointer):
+            app.state.agent_graph = agent_graph
+            app.state.agent_checkpointer = checkpointer
+            yield
     finally:
         await app.state.openai.close()
         await app.state.cache.aclose()
@@ -189,6 +194,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(health_router)
+    app.include_router(agent_router)
     app.include_router(models_router)
     app.include_router(chat_router)
     app.include_router(chat_history_router)

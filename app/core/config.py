@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     phoenix_collector_endpoint: str = "http://localhost:6006"
     database_url: str = "postgresql+asyncpg://chat:chat@localhost:5432/chat"
     postgres_password: SecretStr | None = None
+    agent_checkpointer: Literal["memory", "sqlite", "postgres"] = "sqlite"
+    agent_sqlite_path: Path = Path("./var/agent_checkpoints.sqlite")
     chat_repository: Literal["json", "postgres"] = "json"
     chat_storage_dir: Path = Path("./var/chats")
     chat_context_strategy: Literal["sliding", "hybrid"] = "sliding"

@@ -80,6 +80,7 @@ services:
       REDIS_PASSWORD: ""
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
       DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-chat}@postgres:5432/chat
+      AGENT_CHECKPOINTER: postgres
       CHAT_REPOSITORY: postgres
       BOT_URL: http://bot:9000
     depends_on:
