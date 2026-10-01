@@ -38,7 +38,7 @@ docs/
 *.md
 !README.md
 notebooks/
-data/
+# data/
 tasks/
 
 # Docker

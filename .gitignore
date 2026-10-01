@@ -225,3 +225,5 @@ AGENTS.md
 
 # временная папка pytest
 .pytest-temp/
+
+backups/
