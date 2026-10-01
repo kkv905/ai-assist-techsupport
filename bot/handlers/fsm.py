@@ -70,7 +70,7 @@ async def ask_question_handler(
 
     try:
         chat_id = await resolve_chat_id(backend, message.from_user.id)
-        await stream_to_chat(message, backend.send_message(chat_id, prompt))
+        await stream_to_chat(message, backend.send_rag_message(chat_id, prompt))
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as error:
         await message.answer(format_backend_error(error))
         return

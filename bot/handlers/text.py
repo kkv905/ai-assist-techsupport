@@ -21,6 +21,6 @@ async def text_message_handler(message: Message, backend: BackendClient) -> None
 
     try:
         chat_id = await resolve_chat_id(backend, message.from_user.id)
-        await stream_to_chat(message, backend.send_message(chat_id, message.text))
+        await stream_to_chat(message, backend.send_rag_message(chat_id, message.text))
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as error:
         await message.answer(format_backend_error(error))

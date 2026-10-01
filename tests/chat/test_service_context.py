@@ -142,6 +142,19 @@ class FakeLLMClient:
         )
 
 
+class FakeRAGService:
+    """Имитирует готовый RAG без обращения к Qdrant или LLM."""
+
+    def __init__(self, result: dict[str, object], *, ready: bool = True) -> None:
+        self.ready = ready
+        self.result = result
+        self.questions: list[str] = []
+
+    def answer(self, question: str) -> dict[str, object]:
+        self.questions.append(question)
+        return self.result
+
+
 @pytest.mark.asyncio
 async def test_send_message_builds_sliding_window_context() -> None:
     """Проверяет сборку контекста по стратегии sliding window."""
@@ -268,6 +281,119 @@ async def test_send_message_raises_for_unknown_chat() -> None:
     with pytest.raises(ChatNotFoundError):
         async for _ in service.send_message(uuid4(), "Привет"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_send_rag_message_stores_history_sources_and_feedback_message() -> None:
+    """RAG-поток сохраняет пару сообщений и отдает id ассистента для feedback."""
+
+    repository = InMemoryChatRepository()
+    chat = await repository.create_chat("user-1", "telegram")
+    rag_service = FakeRAGService(
+        {
+            "answer": "Проверьте пароль VPN [1].",
+            "confident": True,
+            "is_fallback": False,
+            "sources": [{"file_name": "02-vpn.txt"}],
+        }
+    )
+    llm_client = FakeLLMClient([])
+    service = ChatService(
+        repository=repository,
+        llm_client=llm_client,
+        moderation_service=FakeModerationService(),
+        rag_service=rag_service,
+    )
+
+    events = [event async for event in service.send_rag_message(chat.id, "VPN не подключается")]
+
+    assert [event.type for event in events] == ["token", "sources", "done"]
+    assert [message.content for message in repository.messages[chat.id]] == [
+        "VPN не подключается",
+        "Проверьте пароль VPN [1].",
+    ]
+    assert events[-1].message_id == repository.messages[chat.id][-1].id
+    assert llm_client.chat.completions.calls == []
+    assert rag_service.questions == ["VPN не подключается"]
+
+
+@pytest.mark.asyncio
+async def test_send_rag_message_hides_sources_for_score_guard_fallback() -> None:
+    """Score guard fallback не прикладывает нерелевантные источники к Telegram-ответу."""
+
+    repository = InMemoryChatRepository()
+    chat = await repository.create_chat("user-1", "telegram")
+    service = ChatService(
+        repository=repository,
+        llm_client=FakeLLMClient([]),
+        moderation_service=FakeModerationService(),
+        rag_service=FakeRAGService(
+            {
+                "answer": "По базе не нашёл, могу эскалировать.",
+                "confident": False,
+                "is_fallback": True,
+                "sources": [{"file_name": "x.txt"}],
+            }
+        ),
+    )
+
+    events = [event async for event in service.send_rag_message(chat.id, "Вопрос вне базы")]
+
+    assert [event.type for event in events] == ["token", "done"]
+    assert events[-1].message_id == repository.messages[chat.id][-1].id
+    assert [message.content for message in repository.messages[chat.id]] == [
+        "Вопрос вне базы",
+        "По базе не нашёл, могу эскалировать.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_rag_message_hides_sources_for_llm_fallback() -> None:
+    """LLM fallback скрывает источники даже при confident=true."""
+
+    repository = InMemoryChatRepository()
+    chat = await repository.create_chat("user-1", "telegram")
+    service = ChatService(
+        repository=repository,
+        llm_client=FakeLLMClient([]),
+        moderation_service=FakeModerationService(),
+        rag_service=FakeRAGService(
+            {
+                "answer": "По базе не нашёл, могу эскалировать.",
+                "confident": True,
+                "is_fallback": True,
+                "sources": [{"file_name": "irrelevant.txt"}],
+            }
+        ),
+    )
+
+    events = [event async for event in service.send_rag_message(chat.id, "Командировка за границу")]
+
+    assert [event.type for event in events] == ["token", "done"]
+    assert events[-1].message_id == repository.messages[chat.id][-1].id
+
+
+@pytest.mark.asyncio
+async def test_send_rag_message_returns_503_without_calling_llm_when_index_not_ready() -> None:
+    """Неготовый индекс не переключает Telegram на обычный LLM-чат."""
+
+    from fastapi import HTTPException
+
+    repository = InMemoryChatRepository()
+    chat = await repository.create_chat("user-1", "telegram")
+    llm_client = FakeLLMClient([])
+    service = ChatService(
+        repository=repository,
+        llm_client=llm_client,
+        moderation_service=FakeModerationService(),
+        rag_service=FakeRAGService({}, ready=False),
+    )
+
+    with pytest.raises(HTTPException, match="RAG index is not available") as error:
+        _ = [event async for event in service.send_rag_message(chat.id, "VPN")]
+
+    assert error.value.status_code == 503
+    assert llm_client.chat.completions.calls == []
 
 
 

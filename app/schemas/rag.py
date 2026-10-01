@@ -20,3 +20,4 @@ class RAGQueryResponse(BaseModel):
     top_score: float
     sources: list[RAGSource]
     confident: bool
+    is_fallback: bool = Field(description="Ответ является каноническим fallback RAG.")

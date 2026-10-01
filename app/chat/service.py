@@ -9,6 +9,7 @@ from uuid import UUID
 
 import structlog
 import tiktoken
+from anyio import to_thread
 from fastapi import HTTPException
 
 from app.chat.domain import Chat, ChatMessage, ChatStreamEvent, FeedbackValue, MediaRef, MessageFeedback
@@ -235,6 +236,38 @@ class ChatService:
         if rag_result is not None:
             yield ChatStreamEvent(type="sources", sources=rag_result["sources"])
         yield ChatStreamEvent(type="done", message_id=assistant_message_id)
+
+    async def send_rag_message(self, chat_id: UUID, user_content: str) -> AsyncIterator[ChatStreamEvent]:
+        """Сохраняет текстовый вопрос и отдает готовый ответ RAG в SSE-контракте.
+
+        Обычный LLM-поток намеренно не используется: этот путь предназначен для
+        Telegram и должен оставаться работоспособным, когда LLM-клиент недоступен.
+        """
+
+        await self._ensure_chat_exists(chat_id)
+        rag_service = self._rag_service
+        if rag_service is None or not rag_service.ready:
+            raise HTTPException(status_code=503, detail="RAG index is not available")
+
+        await self._repository.append_message(
+            chat_id,
+            ChatMessage(chat_id=chat_id, role="user", content=user_content),
+        )
+        rag_result = await to_thread.run_sync(rag_service.answer, user_content)
+        assistant_content = rag_result["answer"]
+        stored = await self._repository.append_message(
+            chat_id,
+            ChatMessage(chat_id=chat_id, role="assistant", content=assistant_content),
+        )
+
+        yield ChatStreamEvent(type="token", delta=assistant_content)
+        if (
+            rag_result.get("confident")
+            and not rag_result.get("is_fallback", False)
+            and rag_result.get("sources")
+        ):
+            yield ChatStreamEvent(type="sources", sources=rag_result["sources"])
+        yield ChatStreamEvent(type="done", message_id=stored.id)
 
     async def _load_history(self, chat_id: UUID) -> list[ChatMessage]:
         """Загружает историю чата по выбранной стратегии."""

@@ -100,6 +100,34 @@ class BackendClient:
         finally:
             await response.aclose()
 
+    async def send_rag_message(self, chat_id: UUID, content: str) -> AsyncIterator[BackendStreamEvent]:
+        """Отправляет текстовый вопрос в выделенный RAG-поток текущего чата."""
+
+        request = self._client.build_request(
+            "POST",
+            f"/chats/{chat_id}/rag/messages",
+            files={"content": (None, content)},
+            headers={"Accept": "text/event-stream"},
+            timeout=_STREAM_TIMEOUT,
+        )
+        response = await self._send_stream_request(request)
+
+        try:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload = json.loads(line.removeprefix("data: "))
+                message_id = payload.get("message_id")
+                yield BackendStreamEvent(
+                    type=payload.get("type", "token"),
+                    delta=payload.get("delta"),
+                    message_id=UUID(message_id) if message_id else None,
+                    sources=payload.get("sources"),
+                )
+        finally:
+            await response.aclose()
+
     async def clear_messages(self, chat_id: UUID) -> None:
         """Очищает историю сообщений чата на стороне backend."""
 

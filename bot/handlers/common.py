@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from time import monotonic
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -17,6 +18,10 @@ from bot.keyboards.inline import feedback_kb
 from bot.services.backend_client import BackendClient
 
 _DRAFT_UPDATE_INTERVAL_SECONDS = 1.0
+_TELEGRAM_MESSAGE_LIMIT = 4096
+_MAX_SOURCE_BLOCK_LENGTH = 1024
+_MAX_SOURCE_FILE_NAME_LENGTH = 120
+_MAX_SOURCE_SNIPPET_LENGTH = 240
 
 
 @dataclass(slots=True)
@@ -70,10 +75,14 @@ async def stream_to_chat(message: Message, events) -> StreamResult:
     first_token = asyncio.Event()
     typing_task = asyncio.create_task(_send_typing_until_first_token(message, first_token))
     backend_message_id: UUID | None = None
+    sources: list[dict[str, Any]] | None = None
 
     try:
         await _safe_send_message_draft(message, "", draft_id)
         async for event in events:
+            if event.type == "sources":
+                sources = event.sources
+                continue
             if event.type == "done":
                 backend_message_id = event.message_id
                 continue
@@ -89,7 +98,7 @@ async def stream_to_chat(message: Message, events) -> StreamResult:
             if now - last_update_at < _DRAFT_UPDATE_INTERVAL_SECONDS:
                 continue
 
-            await _safe_send_message_draft(message, buffer, draft_id)
+            await _safe_send_message_draft(message, _truncate(buffer, _TELEGRAM_MESSAGE_LIMIT), draft_id)
             rendered_text = buffer
             last_update_at = monotonic()
     finally:
@@ -100,10 +109,72 @@ async def stream_to_chat(message: Message, events) -> StreamResult:
         buffer = "Сервис вернул пустой ответ."
 
     if buffer != rendered_text:
-        await _safe_send_message_draft(message, buffer, draft_id)
+        await _safe_send_message_draft(message, _truncate(buffer, _TELEGRAM_MESSAGE_LIMIT), draft_id)
 
-    await _safe_send_message(message, buffer, backend_message_id)
-    return StreamResult(text=buffer, message_id=backend_message_id)
+    final_text = format_final_message(buffer, sources)
+    await _safe_send_message(message, final_text, backend_message_id)
+    return StreamResult(text=final_text, message_id=backend_message_id)
+
+
+def format_sources(sources: list[dict[str, Any]] | None, *, max_length: int = _MAX_SOURCE_BLOCK_LENGTH) -> str:
+    """Возвращает компактный и безопасный для Telegram список RAG-источников."""
+
+    if not sources or max_length <= len("Источники:\n"):
+        return ""
+
+    entries: list[str] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            return ""
+        file_name = _source_file_name(source.get("file_name"))
+        snippet = _normalise_snippet(source.get("snippet"))
+        if not file_name or not snippet:
+            return ""
+        entry = f"{len(entries) + 1}. {file_name} — {snippet}"
+        candidate = "Источники:\n" + "\n".join([*entries, entry])
+        if len(candidate) > max_length:
+            break
+        entries.append(entry)
+
+    return "Источники:\n" + "\n".join(entries) if entries else ""
+
+
+def format_final_message(answer: str, sources: list[dict[str, Any]] | None) -> str:
+    """Собирает финальное сообщение, не превышающее лимит Telegram."""
+
+    source_block = format_sources(sources)
+    if not source_block:
+        return _truncate(answer, _TELEGRAM_MESSAGE_LIMIT)
+
+    answer_limit = _TELEGRAM_MESSAGE_LIMIT - len(source_block) - 2
+    return f"{_truncate(answer, answer_limit)}\n\n{source_block}"
+
+
+def _source_file_name(value: object) -> str:
+    """Оставляет только имя файла, чтобы не раскрывать путь к документу."""
+
+    if not isinstance(value, str):
+        return ""
+    file_name = value.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
+    return _truncate(file_name, _MAX_SOURCE_FILE_NAME_LENGTH)
+
+
+def _normalise_snippet(value: object) -> str:
+    """Убирает лишние пробелы из фрагмента документа и ограничивает его длину."""
+
+    if not isinstance(value, str):
+        return ""
+    return _truncate(" ".join(value.split()), _MAX_SOURCE_SNIPPET_LENGTH)
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Обрезает текст с многоточием, сохраняя заданный лимит символов."""
+
+    if len(text) <= limit:
+        return text
+    if limit <= 1:
+        return "…"[:limit]
+    return text[: limit - 1].rstrip() + "…"
 
 
 async def _safe_send_message_draft(message: Message, text: str, draft_id: int) -> None:

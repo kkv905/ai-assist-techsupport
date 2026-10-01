@@ -135,6 +135,38 @@ async def send_message(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@router.post("/{chat_id}/rag/messages")
+async def send_rag_message(
+    chat_id: UUID,
+    content: str = Form(...),
+    chat_service: ChatServiceDep = ...,  # type: ignore[assignment]
+) -> StreamingResponse:
+    """Отдает текстовый RAG-ответ через совместимый с Telegram SSE-контракт."""
+
+    chat = await chat_service.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.")
+
+    events = chat_service.send_rag_message(chat_id, content)
+    try:
+        first_event = await anext(events)
+    except StopAsyncIteration:
+        first_event = ChatStreamEvent(type="done")
+    except ChatNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Чат не найден.") from error
+
+    async def event_stream() -> AsyncIterator[str]:
+        """Сериализует RAG-события в JSON SSE."""
+
+        payload = json.dumps(first_event.model_dump(mode="json", exclude_none=True), ensure_ascii=False)
+        yield f"data: {payload}\n\n"
+        async for event in events:
+            payload = json.dumps(event.model_dump(mode="json", exclude_none=True), ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @router.post("/{chat_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
 async def save_feedback(
     chat_id: UUID,

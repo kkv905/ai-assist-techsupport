@@ -66,6 +66,38 @@ async def test_send_message_parses_sse_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_rag_message_parses_all_sse_events() -> None:
+    """Выделенный RAG-метод разбирает token, sources и done."""
+
+    chat_id = uuid4()
+    assistant_message_id = uuid4()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == f"/chats/{chat_id}/rag/messages"
+        assert "multipart/form-data" in request.headers["content-type"]
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=(
+                'data: {"type":"token","delta":"Ответ [1]"}\n\n'
+                'data: {"type":"sources","sources":[{"file_name":"02-vpn.txt"}]}\n\n'
+                f'data: {{"type":"done","message_id":"{assistant_message_id}"}}\n\n'
+            ),
+        )
+
+    client = BackendClient("http://testserver", transport=httpx.MockTransport(handler))
+    try:
+        events = [event async for event in client.send_rag_message(chat_id, "VPN")]
+    finally:
+        await client.aclose()
+
+    assert [event.type for event in events] == ["token", "sources", "done"]
+    assert events[1].sources == [{"file_name": "02-vpn.txt"}]
+    assert events[-1].message_id == assistant_message_id
+
+
+@pytest.mark.asyncio
 async def test_send_message_sends_multipart_when_media_present() -> None:
     """Проверяет, что медиа отправляется в backend как multipart/form-data."""
 

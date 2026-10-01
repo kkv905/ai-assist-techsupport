@@ -31,7 +31,10 @@ flowchart LR
 
 ## API
 
-- `POST /rag/query` — синхронный ответ: `answer`, `confident`, `top_score`, `sources`.
+- `POST /rag/query` — синхронный ответ: `answer`, `confident`, `is_fallback`, `top_score`, `sources`.
+  `is_fallback=true` означает канонический ответ «По базе не нашёл, могу
+  эскалировать.» независимо от технического score; клиентам не следует
+  показывать для него источники.
 - `POST /documents/upload` — PDF/DOCX/HTML/MD/TXT, сохраняет файл и ставит UPSERT-indexing в background, `202`.
 - `POST /chats/{id}/messages` — JSON SSE `token`, финальные `sources` и `done`; короткий follow-up получает контекст предыдущих реплик для retrieval.
 

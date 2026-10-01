@@ -107,10 +107,22 @@ class RAGService:
             top_score = sources[0]["score"] if sources else 0.0
             if top_score < self.score_threshold:
                 logger.info("rag_score_guard", extra={"top_score": top_score, "threshold": self.score_threshold})
-                return {"answer": NOT_FOUND_ANSWER, "top_score": top_score, "sources": sources, "confident": False}
+                return {
+                    "answer": NOT_FOUND_ANSWER,
+                    "top_score": top_score,
+                    "sources": sources,
+                    "confident": False,
+                    "is_fallback": True,
+                }
 
             answer = self._synthesize(retrieval_question, nodes)
-            return {"answer": answer, "top_score": top_score, "sources": sources, "confident": True}
+            return {
+                "answer": answer,
+                "top_score": top_score,
+                "sources": sources,
+                "confident": True,
+                "is_fallback": answer.strip() == NOT_FOUND_ANSWER,
+            }
 
     def evaluate_inputs(self, question: str) -> dict[str, Any]:
         """Return one RAG answer and the untruncated chunks used to produce it.

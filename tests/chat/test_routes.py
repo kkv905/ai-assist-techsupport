@@ -33,6 +33,10 @@ class FakeChatService:
         ]
         self.cleared = False
         self.sent_payloads: list[tuple[str, MediaRef | None]] = []
+        self.rag_sent_payloads: list[str] = []
+        self.rag_available = True
+        self.rag_confident = True
+        self.rag_is_fallback = False
         self.appended: list[tuple[str, str]] = []
         self.feedback_calls: list[tuple[UUID, UUID, str]] = []
         self.block_input = False
@@ -79,6 +83,17 @@ class FakeChatService:
         self.sent_payloads.append((user_content, media_refs))
         yield ChatStreamEvent(type="token", delta="Часть 1")
         yield ChatStreamEvent(type="token", delta=" и часть 2")
+        yield ChatStreamEvent(type="done", message_id=uuid4())
+
+    async def send_rag_message(self, chat_id: UUID, user_content: str) -> AsyncIterator[ChatStreamEvent]:
+        """Отдает предсказуемый RAG-поток для проверки транспорта."""
+
+        if not self.rag_available:
+            raise HTTPException(status_code=503, detail="RAG index is not available")
+        self.rag_sent_payloads.append(user_content)
+        yield ChatStreamEvent(type="token", delta="RAG-ответ [1]")
+        if self.rag_confident and not self.rag_is_fallback:
+            yield ChatStreamEvent(type="sources", sources=[{"file_name": "02-vpn.txt"}])
         yield ChatStreamEvent(type="done", message_id=uuid4())
 
     async def append_message(
@@ -183,6 +198,66 @@ def test_send_message_route_returns_sse_stream() -> None:
     assert 'data: {"type": "done", "message_id":' in body
     assert fake_service.sent_payloads[0][0] == "Привет"
     assert fake_service.sent_payloads[0][1] is None
+
+
+def test_send_rag_message_route_returns_sse_stream() -> None:
+    """Проверяет порядок SSE-событий выделенного RAG-маршрута."""
+
+    fake_service = FakeChatService()
+    app.dependency_overrides[get_chat_service] = lambda: fake_service
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/chats/{fake_service.chat.id}/rag/messages",
+                data={"content": "Почему VPN не подключается?"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    events = [line.removeprefix("data: ") for line in response.text.splitlines() if line.startswith("data: ")]
+    assert '"type": "token"' in events[0]
+    assert '"type": "sources"' in events[1]
+    assert '"type": "done"' in events[2]
+    assert fake_service.rag_sent_payloads == ["Почему VPN не подключается?"]
+
+
+def test_send_rag_message_route_omits_sources_for_fallback() -> None:
+    """Fallback от backend не содержит SSE-события sources."""
+
+    fake_service = FakeChatService()
+    fake_service.rag_is_fallback = True
+    app.dependency_overrides[get_chat_service] = lambda: fake_service
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/chats/{fake_service.chat.id}/rag/messages",
+                data={"content": "Вопрос вне базы"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"type": "sources"' not in response.text
+
+
+def test_send_rag_message_route_returns_503_for_unready_index() -> None:
+    """Неготовый индекс возвращает 503 до запуска обычного chat endpoint."""
+
+    fake_service = FakeChatService()
+    fake_service.rag_available = False
+    app.dependency_overrides[get_chat_service] = lambda: fake_service
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/chats/{fake_service.chat.id}/rag/messages",
+                data={"content": "VPN"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert fake_service.sent_payloads == []
 
 
 

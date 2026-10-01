@@ -137,6 +137,7 @@ def test_rag_endpoint_uses_prebuilt_service() -> None:
                     "snippet": "Фрагмент",
                 }],
                 "confident": True,
+                "is_fallback": False,
             }
 
         def close(self) -> None:
@@ -149,3 +150,4 @@ def test_rag_endpoint_uses_prebuilt_service() -> None:
     assert response.status_code == 200
     assert response.json()["answer"] == "RAG: Как настроить VPN?"
     assert response.json()["sources"][0]["file_name"] == "guide.md"
+    assert response.json()["is_fallback"] is False

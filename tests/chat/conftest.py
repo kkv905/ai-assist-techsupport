@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.chat.repositories.json_repo import JsonChatRepository
 from app.chat.repositories.pg_models import Base, ChatMessageRow, ChatRow
 from app.chat.repositories.pg_repo import PostgresChatRepository
+from postgres_test_database import ensure_safe_test_database_url, get_configured_test_database_url
 
 
 @pytest_asyncio.fixture(params=["json", "postgres"])
@@ -22,22 +23,30 @@ async def chat_repository(request, tmp_path):
         yield JsonChatRepository(tmp_path)
         return
 
-    database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://chat:chat@localhost:5432/chat")
+    database_url = get_configured_test_database_url(os.environ)
+    if database_url is None:
+        pytest.skip("PostgreSQL-контрактные тесты skipped: TEST_DATABASE_URL не задан.")
+
     engine = create_async_engine(database_url, future=True)
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-    except Exception as error:
+        try:
+            ensure_safe_test_database_url(database_url)
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+        except Exception:
+            pytest.skip("PostgreSQL-контрактные тесты skipped: тестовая БД недоступна.")
+
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            try:
+                ensure_safe_test_database_url(database_url)
+                await session.execute(delete(ChatMessageRow))
+                await session.execute(delete(ChatRow))
+                await session.commit()
+                yield PostgresChatRepository(session)
+            finally:
+                ensure_safe_test_database_url(database_url)
+                async with engine.begin() as connection:
+                    await connection.run_sync(Base.metadata.drop_all)
+    finally:
         await engine.dispose()
-        pytest.skip(f"PostgreSQL недоступен для контрактного теста: {error}")
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        await session.execute(delete(ChatMessageRow))
-        await session.execute(delete(ChatRow))
-        await session.commit()
-        yield PostgresChatRepository(session)
-
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
