@@ -16,7 +16,7 @@ async def query_rag(payload: RAGQueryRequest, request: Request) -> dict:
 
     service = getattr(request.app.state, "rag_service", None)
     if service is None or not service.ready:
-        raise HTTPException(status_code=503, detail="RAG index is not available")
+        raise HTTPException(status_code=503, detail="Индекс RAG недоступен.")
     return service.answer(payload.question)
 
 
@@ -24,11 +24,11 @@ async def query_rag(payload: RAGQueryRequest, request: Request) -> dict:
 async def upload_document(
     request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)
 ) -> dict[str, str]:
-    """Store a supported document and index it without blocking the HTTP request."""
+    """Сохраняет поддерживаемый документ и индексирует его, не блокируя HTTP-запрос."""
 
     service = getattr(request.app.state, "rag_service", None)
     if service is None:
-        raise HTTPException(status_code=503, detail="RAG index is not available")
+        raise HTTPException(status_code=503, detail="Индекс RAG недоступен.")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".pdf", ".docx", ".html", ".htm", ".md", ".txt"}:
         raise HTTPException(status_code=415, detail="Поддерживаются PDF, DOCX, HTML, Markdown и TXT.")

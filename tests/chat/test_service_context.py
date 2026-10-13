@@ -389,7 +389,7 @@ async def test_send_rag_message_returns_503_without_calling_llm_when_index_not_r
         rag_service=FakeRAGService({}, ready=False),
     )
 
-    with pytest.raises(HTTPException, match="RAG index is not available") as error:
+    with pytest.raises(HTTPException, match="Индекс RAG недоступен") as error:
         _ = [event async for event in service.send_rag_message(chat.id, "VPN")]
 
     assert error.value.status_code == 503

@@ -1,4 +1,4 @@
-"""Bounded native-tool-calling ReAct agent with lightweight self-reflection."""
+"""ReAct-агент с ограниченным числом нативных вызовов инструментов и самопроверкой."""
 
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ MODEL_MAIN = "gpt-5.4-mini"
 MODEL_PREMIUM = "gpt-5.4"
 MODEL_CRITIC = "gpt-5.4-mini"
 
-# Strict schemas keep the model from inventing undeclared arguments.  Each
-# description says what the tool does, when it is appropriate, its inputs and
-# what it returns (including its safety boundary).
+# Строгие схемы не позволяют модели выдумывать необъявленные аргументы. Каждое
+# описание объясняет назначение инструмента, условия применения, входные данные
+# и результат, включая границы безопасности.
 TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -138,13 +138,13 @@ def run_react_with_reflection(
     model_critic: str = MODEL_CRITIC,
     client: Any | None = None,
 ) -> dict[str, Any]:
-    """Answer *question* with bounded tool use and at most two critic revisions."""
+    """Отвечает на *question* с ограниченным использованием инструментов и двумя правками критика."""
     if not 8 <= max_iterations <= 20:
-        raise ValueError("max_iterations must be between 8 and 20")
+        raise ValueError("max_iterations должен быть в диапазоне от 8 до 20.")
     if not 5 <= timeout_per_iteration_sec <= 15:
-        raise ValueError("timeout_per_iteration_sec must be between 5 and 15")
+        raise ValueError("timeout_per_iteration_sec должен быть в диапазоне от 5 до 15.")
     if not 0 <= max_revisions <= 2:
-        raise ValueError("max_revisions must be between 0 and 2")
+        raise ValueError("max_revisions должен быть в диапазоне от 0 до 2.")
 
     active_tools = tools if tools is not None else TOOLS
     dispatch = tool_dispatch if tool_dispatch is not None else DISPATCH
@@ -175,7 +175,7 @@ def run_react_with_reflection(
             )
             main_usage = _add_usage(usage_total, response)
             if time.monotonic() - started > timeout_per_iteration_sec:
-                return _result("Timeout", usage_total, step, trace)
+                return _result("Превышено время ожидания.", usage_total, step, trace)
 
             message = response.choices[0].message
             messages.append(message)
@@ -202,8 +202,8 @@ def run_react_with_reflection(
                 args = raw_args
                 observation = f"Ошибка tool {name}: {error}"
 
-            # A model that proposes multiple calls does not get to perform them:
-            # one action is executed and all remaining calls receive a rejection.
+            # Модель, предложившая несколько вызовов, не выполняет их все:
+            # запускается одно действие, а остальные вызовы получают отказ.
             messages.append({"role": "tool", "tool_call_id": call.id, "content": observation})
             for extra_call in calls[1:]:
                 messages.append({
@@ -214,7 +214,7 @@ def run_react_with_reflection(
 
             elapsed = time.monotonic() - started
             if elapsed > timeout_per_iteration_sec:
-                return _result("Timeout", usage_total, step, trace)
+                return _result("Превышено время ожидания.", usage_total, step, trace)
 
             critic_usage: dict[str, int] | None = None
             verdict = "OK"
@@ -241,7 +241,7 @@ def run_react_with_reflection(
             trace.append(record)
             log.info("react.step", **record)
             if latency > timeout_per_iteration_sec:
-                return _result("Timeout", usage_total, step, trace)
+                return _result("Превышено время ожидания.", usage_total, step, trace)
 
             if verdict.upper().startswith("REVISE:") and revisions_used < max_revisions:
                 revisions_used += 1
@@ -252,7 +252,7 @@ def run_react_with_reflection(
     except Exception as error:
         return _result("", usage_total, len(trace), trace, error=str(error), revisions_used=revisions_used)
     finally:
-        # This runs for final answers, explicit limit exits, and API failures.
+        # Выполняется для итоговых ответов, явного выхода по лимиту и ошибок API.
         log.info("react.usage", usage=usage_total, revisions_used=revisions_used)
 
 

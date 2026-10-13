@@ -247,7 +247,7 @@ class ChatService:
         await self._ensure_chat_exists(chat_id)
         rag_service = self._rag_service
         if rag_service is None or not rag_service.ready:
-            raise HTTPException(status_code=503, detail="RAG index is not available")
+            raise HTTPException(status_code=503, detail="Индекс RAG недоступен.")
 
         await self._repository.append_message(
             chat_id,

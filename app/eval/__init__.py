@@ -1,1 +1,1 @@
-"""Offline RAG quality evaluation helpers (optional ``eval`` dependency group)."""
+"""Утилиты автономной оценки качества RAG (необязательная группа зависимостей ``eval``)."""

@@ -52,7 +52,7 @@ async def media_to_part(media: UploadFile) -> dict:
         text = extract_docx_text(data)[:_MAX_TEXT_LENGTH]
         return {"type": "text", "text": f"[документ DOCX]:\n{text}"}
 
-    raise ValueError(f"Unsupported media type: {mime}")
+    raise ValueError(f"Неподдерживаемый тип медиа: {mime}")
 
 
 async def whisper_transcribe(audio_bytes: bytes, filename: str) -> str:

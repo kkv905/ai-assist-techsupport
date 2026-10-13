@@ -1,4 +1,4 @@
-"""Index the knowledge base incrementally: ``uv run python scripts/ingest.py data``."""
+"""Инкрементально индексирует базу знаний: ``uv run python scripts/ingest.py data``."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.services.rag import RAGService
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Incrementally ingest RAG documents")
+    parser = argparse.ArgumentParser(description="Инкрементально загружает RAG-документы")
     parser.add_argument("directory", nargs="?", default=None)
     args = parser.parse_args()
     settings = get_settings()
@@ -19,7 +19,7 @@ def main() -> None:
         service.data_dir = Path(args.directory)
     try:
         result = service.ingest()
-        print(f"{result['changed']} changed, {result['unchanged']} unchanged")
+        print(f"Изменено: {result['changed']}, без изменений: {result['unchanged']}")
     finally:
         service.close()
 

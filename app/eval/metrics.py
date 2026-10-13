@@ -1,4 +1,4 @@
-"""RAGAS 0.4 metric construction kept out of the production import graph."""
+"""Сборка метрик RAGAS 0.4, вынесенная из графа production-импортов."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ from typing import Any
 
 
 def build_judge(model: str, api_key: str, base_url: str):
-    """Create a DeepSeek judge through its OpenAI-compatible async API."""
+    """Создаёт судейскую модель DeepSeek через её OpenAI-совместимый асинхронный API."""
     from openai import AsyncOpenAI
     from ragas.llms import llm_factory
 
-    # DeepSeek and OpenAI can drop a burst of simultaneous structured calls.
-    # Bounded retries make an individual metric resilient without an endless wait.
+    # DeepSeek и OpenAI могут отклонить серию одновременных структурированных вызовов.
+    # Ограниченные повторы делают отдельную метрику устойчивой без бесконечного ожидания.
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=45.0, max_retries=2)
     return llm_factory(model, provider="openai", client=client)
 
 
 def build_metrics(judge: Any, embedding_model: str, embedding_api_key: str) -> dict[str, Any]:
-    """Build the four required collections metrics and the discrete citation judge."""
+    """Собирает четыре обязательные метрики коллекций и дискретную оценку цитирования."""
     from openai import AsyncOpenAI
     from ragas.embeddings import OpenAIEmbeddings
     from ragas.metrics.collections import (
@@ -42,7 +42,7 @@ def build_metrics(judge: Any, embedding_model: str, embedding_api_key: str) -> d
 
 
 def make_has_citation(llm: Any):
-    """Return a binary Russian LLM-as-a-judge metric compatible with RAGAS 0.4."""
+    """Возвращает бинарную русскоязычную метрику LLM-судьи, совместимую с RAGAS 0.4."""
     from pydantic import BaseModel
     from ragas.metrics import discrete_metric
 
@@ -63,11 +63,11 @@ def make_has_citation(llm: Any):
 
 
 async def eval_row(row: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
-    """Evaluate a single row, preserving failures as audit data rather than aborting a run."""
+    """Оценивает одну строку, сохраняя ошибки для аудита вместо остановки запуска."""
     result = dict(row)
     for name, metric in metrics.items():
-        # Checkpoints retain successful cells. A resume retries only missing
-        # metrics instead of spending tokens on a whole completed sample again.
+        # Контрольные точки сохраняют успешные ячейки. При продолжении повторно
+        # считаются только отсутствующие метрики, а не весь завершённый пример.
         if result.get(name) not in (None, ""):
             continue
         try:
@@ -97,14 +97,14 @@ async def eval_row(row: dict[str, Any], metrics: dict[str, Any]) -> dict[str, An
                 raise ValueError(reason)
             result[name] = 1.0 if value == "yes" else 0.0 if value == "no" else float(value)
             result.pop(f"{name}_error", None)
-        except Exception as exc:  # A transient judge error must remain visible in the CSV.
+        except Exception as exc:  # Временная ошибка судейской модели должна остаться видимой в CSV.
             result[name] = None
             result[f"{name}_error"] = str(exc)
     return result
 
 
 async def _context_precision_with_retry(metric: Any, row: dict[str, Any]) -> Any:
-    """Retry a whole ContextPrecision cell when one of its context verdicts drops.
+    """Повторяет расчёт всей ячейки ContextPrecision, если теряется вердикт по одному контексту.
 
     RAGAS evaluates every retrieved context independently. One transient judge
     connection error otherwise discards the complete precision score.

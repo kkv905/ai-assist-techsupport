@@ -1,4 +1,4 @@
-"""Cross-suite isolation for HTTP tests."""
+"""Изоляция HTTP-тестов между наборами."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from fastapi import FastAPI
 
 @asynccontextmanager
 async def _test_lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Provide state required by DI without external service startup."""
+    """Предоставляет состояние, необходимое DI, без запуска внешних сервисов."""
 
     from app.main import app
 
-    # Validation still resolves `/chat` dependencies before it rejects an
-    # invalid request, so these harmless sentinels must exist on app.state.
+    # Валидация разрешает зависимости `/chat` до отклонения некорректного
+    # запроса, поэтому в app.state нужны эти безопасные заглушки.
     app.state.openai = object()
     app.state.cache = object()
     yield
@@ -24,11 +24,11 @@ async def _test_lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 @pytest.fixture(autouse=True)
 def disable_external_app_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep each TestClient test hermetic and fast.
+    """Сохраняет каждый тест TestClient изолированным и быстрым.
 
-    Route tests inject their service dependencies themselves. Starting the
-    production lifespan for each TestClient would otherwise load BAAI/bge-m3
-    and make network requests to Qdrant and Hugging Face.
+    Тесты маршрутов сами подменяют сервисные зависимости. Иначе lifespan для
+    каждого TestClient загружал бы BAAI/bge-m3 и выполнял сетевые запросы к
+    Qdrant и Hugging Face.
     """
 
     from app.main import app

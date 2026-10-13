@@ -1,8 +1,8 @@
-"""LangGraph implementations of the M6 ReAct support agent.
+"""Реализации ReAct-агента поддержки M6 на LangGraph.
 
-The module deliberately exposes both a hand-built graph and LangChain's
-prebuilt agent.  Neither graph uses a checkpointer yet, but callers may
-already pass ``configurable.thread_id`` when invoking it.
+Модуль намеренно предоставляет и вручную собранный граф, и готового агента
+LangChain. Пока ни один граф не использует хранилище контрольных точек, но при
+вызове уже можно передавать ``configurable.thread_id``.
 """
 
 from __future__ import annotations
@@ -50,9 +50,9 @@ def send_telegram_message(chat_id: str, text: str) -> str:
 
 
 TOOLS: list[BaseTool] = [search_knowledge_base, get_current_time, send_telegram_message]
-# The client and API key intentionally do not belong to graph state.
-# A harmless placeholder keeps graph inspection/tests credential-free.  A real
-# invocation still requires OPENAI_API_KEY (or LLM__OPENAI_API_KEY) to be set.
+# Клиент и ключ API намеренно не входят в состояние графа.
+# Безопасная заглушка позволяет исследовать граф и запускать тесты без учётных
+# данных. Для реального вызова всё равно нужен OPENAI_API_KEY (или LLM__OPENAI_API_KEY).
 MODEL = ChatOpenAI(
     model="gpt-5.4-mini",
     temperature=0,
@@ -61,7 +61,7 @@ MODEL = ChatOpenAI(
 
 
 class AgentState(TypedDict):
-    """Serializable graph state; reducers preserve the conversation and tool audit."""
+    """Сериализуемое состояние графа; редьюсеры сохраняют диалог и аудит инструментов."""
 
     messages: Annotated[list[AnyMessage], add_messages]
     iteration_count: int
@@ -69,13 +69,13 @@ class AgentState(TypedDict):
 
 
 async def call_model(state: AgentState) -> dict[str, Any]:
-    """Ask the bound model for the next action or final response."""
+    """Запрашивает у связанной модели следующее действие или итоговый ответ."""
     response = await MODEL.bind_tools(TOOLS).ainvoke(state["messages"])
     return {"messages": [response], "iteration_count": state["iteration_count"] + 1}
 
 
 async def execute_tool(state: AgentState) -> dict[str, Any]:
-    """Execute every requested tool and return observations as ToolMessages."""
+    """Выполняет запрошенные инструменты и возвращает наблюдения как ToolMessage."""
     last_message = state["messages"][-1]
     by_name = {tool_.name: tool_ for tool_ in TOOLS}
     messages: list[ToolMessage] = []
@@ -88,7 +88,7 @@ async def execute_tool(state: AgentState) -> dict[str, Any]:
         else:
             try:
                 content = str(await by_name[name].ainvoke(args))
-            except Exception as error:  # Tool failures are model-visible observations.
+            except Exception as error:  # Ошибки инструментов передаются модели как наблюдения.
                 content = f"Ошибка инструмента {name}: {error}"
         messages.append(ToolMessage(content=content, tool_call_id=tool_call["id"]))
         results.append({"name": name, "args": args, "result": content})
@@ -96,7 +96,7 @@ async def execute_tool(state: AgentState) -> dict[str, Any]:
 
 
 async def force_finish(state: AgentState) -> dict[str, Any]:
-    """Make an explicit terminal message when the iteration guard stopped tool use."""
+    """Создаёт явное итоговое сообщение, если ограничитель остановил работу инструментов."""
     last_message = state["messages"][-1]
     if state["iteration_count"] >= MAX_ITERATIONS and getattr(last_message, "tool_calls", None):
         return {"messages": [AIMessage(content="Достигнут лимит итераций; не удалось получить итоговый ответ.")]}
@@ -104,7 +104,7 @@ async def force_finish(state: AgentState) -> dict[str, Any]:
 
 
 def route_after_model(state: AgentState) -> Literal["execute_tool", "force_finish"]:
-    """Pure, deterministic stop gate for the custom graph."""
+    """Чистый детерминированный переход завершения для пользовательского графа."""
     if state["iteration_count"] >= MAX_ITERATIONS:
         return "force_finish"
     last_message = state["messages"][-1]
@@ -112,7 +112,7 @@ def route_after_model(state: AgentState) -> Literal["execute_tool", "force_finis
 
 
 def build_custom_graph() -> Any:
-    """Build the explicit StateGraph form, useful when orchestration must be customised."""
+    """Собирает явный StateGraph для случаев, когда нужна настройка оркестрации."""
     builder = StateGraph(AgentState)
     builder.add_node("call_model", call_model)
     builder.add_node("execute_tool", execute_tool)
@@ -129,7 +129,7 @@ def build_custom_graph() -> Any:
 
 
 def build_prebuilt_graph(model: Any = MODEL, tools: list[BaseTool] = TOOLS) -> Any:
-    """Build LangChain's managed ReAct graph from precisely the same tools."""
+    """Собирает управляемый ReAct-граф LangChain из тех же инструментов."""
     return create_agent(model=model, tools=tools, system_prompt=SYSTEM_PROMPT)
 
 

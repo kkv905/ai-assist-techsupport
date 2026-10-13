@@ -1,4 +1,4 @@
-"""Corporate RAG retrieval, refusal guard and source citations."""
+"""Корпоративный RAG-поиск, защита от необоснованных ответов и ссылки на источники."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ class RAGService:
         self.ingest()
 
     def ingest(self, paths: list[Path] | None = None) -> dict[str, int]:
-        """Run LlamaIndex IngestionPipeline with UPSERTS; unchanged inputs are skipped."""
+        """Запускает LlamaIndex IngestionPipeline с UPSERT; неизменившиеся данные пропускаются."""
         self._validate()
         self._configure_llama()
         assert self._client is not None
@@ -88,9 +88,9 @@ class RAGService:
         return self._run_pipeline(documents, vector_store)
 
     def answer(self, question: str, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
-        """Retrieve top-10, refuse before LLM when weak, otherwise cite sources."""
+        """Находит top-10, отказывает до LLM при слабом результате либо добавляет источники."""
         if not self.ready:
-            raise RuntimeError("RAG index has not been built.")
+            raise RuntimeError("Индекс RAG не построен.")
         question = question.strip()
         if not question:
             raise ValueError("Вопрос не должен быть пустым.")
@@ -125,13 +125,13 @@ class RAGService:
             }
 
     def evaluate_inputs(self, question: str) -> dict[str, Any]:
-        """Return one RAG answer and the untruncated chunks used to produce it.
+        """Возвращает ответ RAG и полные фрагменты, использованные для его подготовки.
 
-        This is intentionally separate from the HTTP schema: evaluators need the
-        complete node text, whereas clients should receive short safe snippets.
+        Это намеренно отделено от схемы HTTP: оценщикам нужно
+        полный текст узла, тогда как клиенты должны получать короткие безопасные сниппеты.
         """
         if not self.ready:
-            raise RuntimeError("RAG index has not been built.")
+            raise RuntimeError("Индекс RAG не построен.")
         question = question.strip()
         if not question:
             raise ValueError("Вопрос не должен быть пустым.")
@@ -179,7 +179,7 @@ class RAGService:
         return f"{previous}\nuser: {question}"
 
     def _retrieve(self, question: str, history: list[dict[str, str]]) -> tuple[str, list[Any]]:
-        """Retrieve exactly once, including the optional reranking stage."""
+        """Выполняет поиск ровно один раз, включая необязательное переранжирование."""
         retrieval_question = self._condense(question, history)
         with rag_span(
             "RAG retrieval",

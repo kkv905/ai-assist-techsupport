@@ -1,4 +1,4 @@
-"""Export Mermaid descriptions for both M6B3 graphs."""
+"""Экспортирует Mermaid-описания обоих графов M6B3."""
 
 from __future__ import annotations
 

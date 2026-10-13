@@ -27,7 +27,7 @@ def hit_rate_at_k(retrieved: Sequence[Any], relevant_doc_ids: Iterable[str], k: 
 
 
 def mrr_at_k(retrieved: Sequence[Any], relevant_doc_ids: Iterable[str], k: int = 10) -> float:
-    """Reciprocal rank первого релевантного документа в первых ``k``."""
+    """Обратный ранг первого релевантного документа в первых ``k``."""
     relevant = set(relevant_doc_ids)
     for rank, item in enumerate(retrieved[:k], start=1):
         if _matches(item, relevant):
@@ -49,7 +49,7 @@ def evaluate_retrieval(
 ) -> dict[str, float]:
     """Возвращает средние Hit Rate@5, MRR@10 и Recall@10 (от 0 до 1)."""
     if not dataset:
-        raise ValueError("Golden dataset must not be empty.")
+        raise ValueError("Эталонный набор данных не должен быть пустым.")
     hit = mrr = recall = 0.0
     for example in dataset:
         relevant = example["relevant_doc_ids"]

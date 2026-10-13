@@ -1,4 +1,4 @@
-"""Lazy wrapper around multilingual BGE cross-encoder reranking."""
+"""Ленивая обёртка для многоязычного переранжирования BGE cross-encoder."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class CrossEncoderReranker:
 
     def rerank(self, query: str, candidates: list[Any], top_n: int = 10) -> list[Any]:
         if top_n < 1:
-            raise ValueError("top_n must be positive")
+            raise ValueError("top_n должен быть положительным числом.")
         if not candidates:
             return []
         if self._model is None:

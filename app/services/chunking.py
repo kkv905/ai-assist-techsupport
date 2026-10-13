@@ -19,7 +19,7 @@ def russian_sentence_tokenizer(text: str) -> list[str]:
 def fixed_size(
     documents: Sequence[Any], chunk_size: int = 512, chunk_overlap: int = 64
 ) -> list[Any]:
-    """Baseline: токеновый splitter без привязки к границам предложений."""
+    """Базовый вариант: токеновый разделитель без привязки к границам предложений."""
     from llama_index.core.node_parser import TokenTextSplitter
 
     splitter = TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -29,7 +29,7 @@ def fixed_size(
 def recursive(
     documents: Sequence[Any], chunk_size: int = 512, chunk_overlap: int = 64
 ) -> list[Any]:
-    """Paragraph/sentence-aware аналог RecursiveCharacterTextSplitter."""
+    """Аналог RecursiveCharacterTextSplitter с учётом абзацев и предложений."""
     from llama_index.core.node_parser import SentenceSplitter
 
     splitter = SentenceSplitter(

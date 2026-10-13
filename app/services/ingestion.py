@@ -1,4 +1,4 @@
-"""Incremental multi-format ingestion for the corporate knowledge base."""
+"""Инкрементальная загрузка корпоративной базы знаний из нескольких форматов."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def document_metadata(path: Path, data_dir: Path) -> dict[str, str]:
-    """Return stable, useful metadata without leaking technical paths to embeddings."""
+    """Возвращает стабильные полезные метаданные без передачи технических путей в эмбеддинги."""
 
     stat = path.stat()
     try:
@@ -38,7 +38,7 @@ def document_metadata(path: Path, data_dir: Path) -> dict[str, str]:
 
 
 def load_documents(paths: list[Path], data_dir: Path) -> list[Any]:
-    """Read supported files using LlamaIndex readers and enrich every document."""
+    """Читает поддерживаемые файлы средствами LlamaIndex и дополняет каждый документ."""
 
     from llama_index.core import SimpleDirectoryReader
 
@@ -59,7 +59,7 @@ def load_documents(paths: list[Path], data_dir: Path) -> list[Any]:
         metadata = document_metadata(path, data_dir)
         for document in loaded:
             document.metadata.update(metadata)
-            # File paths, timestamps and ingestion internals add retrieval noise.
+            # Пути к файлам, отметки времени и детали загрузки создают шум для поиска.
             document.excluded_embed_metadata_keys = [
                 "file_path", "file_name", "last_modified", "creation_date", "modified_date",
                 "last_accessed_date", "file_size", "source", "author", "version",
@@ -70,7 +70,7 @@ def load_documents(paths: list[Path], data_dir: Path) -> list[Any]:
 
 
 def _readers() -> dict[str, Any]:
-    """Create explicit readers for PDF, DOCX, HTML and Markdown."""
+    """Создаёт явные обработчики для PDF, DOCX, HTML и Markdown."""
 
     from llama_index.readers.file import DocxReader, MarkdownReader, PyMuPDFReader
 
@@ -85,7 +85,7 @@ def _readers() -> dict[str, Any]:
         readers[".html"] = HTMLTagReader()
         readers[".htm"] = HTMLTagReader()
     except ImportError:
-        # Older reader bundles let SimpleDirectoryReader select its built-in HTML reader.
+        # Старые наборы reader-компонентов позволяют SimpleDirectoryReader выбрать встроенный HTML-обработчик.
         pass
     return readers
 

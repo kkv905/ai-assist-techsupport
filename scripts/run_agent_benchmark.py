@@ -1,8 +1,5 @@
-"""Deterministic five-scenario comparison of the naive and ReAct agents.
+"""Детерминированное сравнение на пяти сценариях наивного агента и ReAct-агента.
 
-The harness exercises the real agent loops but replaces Chat Completions and
-tools with local doubles. It is deliberately offline: no credentials, Qdrant,
-or Telegram connection are needed to reproduce the table in the M6B2 report.
 """
 
 from __future__ import annotations
@@ -122,7 +119,7 @@ def _naive_tokens(result: dict[str, Any]) -> int:
 
 
 def run_benchmark() -> list[dict[str, Any]]:
-    """Run all scenarios and return comparison rows used by the Markdown report."""
+    """Запускает все сценарии и возвращает строки сравнения для Markdown-отчёта."""
     old_openai = agent_naive.OpenAI
     old_dispatch = agent_naive.DISPATCH
     old_key = os.environ.get("OPENAI_API_KEY")

@@ -52,7 +52,7 @@ def test_router_has_explicit_iteration_stop() -> None:
 
 @pytest.mark.asyncio
 async def test_broken_tool_cannot_bypass_iteration_guard(monkeypatch) -> None:
-    """A useless/unknown tool call ends explicitly instead of looping forever."""
+    """Бесполезный или неизвестный вызов инструмента завершается без бесконечного цикла."""
     monkeypatch.setattr(
         agent_graph,
         "MODEL",

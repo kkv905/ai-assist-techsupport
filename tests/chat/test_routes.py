@@ -89,7 +89,7 @@ class FakeChatService:
         """Отдает предсказуемый RAG-поток для проверки транспорта."""
 
         if not self.rag_available:
-            raise HTTPException(status_code=503, detail="RAG index is not available")
+            raise HTTPException(status_code=503, detail="Индекс RAG недоступен.")
         self.rag_sent_payloads.append(user_content)
         yield ChatStreamEvent(type="token", delta="RAG-ответ [1]")
         if self.rag_confident and not self.rag_is_fallback:

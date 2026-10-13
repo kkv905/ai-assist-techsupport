@@ -79,7 +79,7 @@ def test_timeout_returns_explicit_answer() -> None:
         "test", tools=[], tool_dispatch={"slow": lambda: (time.sleep(5.05), "late")[1]},
         client=client, timeout_per_iteration_sec=5,
     )
-    assert result["answer"] == "Timeout"
+    assert result["answer"] == "Превышено время ожидания."
 
 
 def test_provocative_task_can_finish_without_tools() -> None:

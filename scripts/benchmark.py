@@ -10,9 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.client import build_client, load_settings
-from app.core.config import get_settings
-from app.services.llm_client import AsyncLLMClient, InMemoryLLMCache
+from app.client import build_client, load_settings  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
+from app.services.llm_client import AsyncLLMClient, InMemoryLLMCache  # noqa: E402
 
 RESULTS_PATH = PROJECT_ROOT / "scripts" / "benchmark_results.md"
 PROMPTS_COUNT = 20
@@ -188,14 +188,14 @@ async def main() -> None:
 
         print("Запуск последовательного sync-бенчмарка...")
         _, sync_duration = run_sync_benchmark(sync_client, legacy_settings["model"], prompts)
-        print(f"sync sequential: {format_seconds(sync_duration)}")
+        print(f"Последовательный синхронный режим: {format_seconds(sync_duration)}")
 
         async_durations: dict[int, float] = {}
         for concurrency in (1, 5, 10):
             print(f"Запуск async batch с concurrency={concurrency}...")
             _, duration = await run_async_benchmark(async_client, prompts, concurrency)
             async_durations[concurrency] = duration
-            print(f"async batch, concurrency={concurrency}: {format_seconds(duration)}")
+            print(f"Асинхронный пакет, параллельность={concurrency}: {format_seconds(duration)}")
 
         print("Сравнение batch_chat и batch_chat_strict на искусственной ошибке...")
         comparison = await compare_batch_modes(async_client, prompts)

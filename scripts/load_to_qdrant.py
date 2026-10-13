@@ -93,10 +93,10 @@ async def main() -> None:
             PointStruct(id=document["id"], vector=vector, payload={key: value for key, value in document.items() if key != "id"})
             for document, vector in zip(documents, vectors, strict=True)
         ]
-        for start in tqdm(range(0, len(points), 128), desc="Uploading to Qdrant", unit="batch"):
+        for start in tqdm(range(0, len(points), 128), desc="Загрузка в Qdrant", unit="пакет"):
             await store.upsert(points[start : start + 128], batch_size=128)
         info = await store.client.get_collection(settings.qdrant_collection)
-        print(f"Loaded {len(points)} deterministic points; points_count={info.points_count}")
+        print(f"Загружено детерминированных точек: {len(points)}; points_count={info.points_count}")
     finally:
         await store.close()
 

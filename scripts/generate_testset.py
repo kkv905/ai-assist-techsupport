@@ -1,4 +1,4 @@
-"""Generate a draft RAGAS test set; review it before replacing the golden JSON."""
+"""Создаёт черновик тестового набора RAGAS; проверьте его перед заменой эталонного JSON."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def main() -> None:
     generated = generator.generate_with_langchain_docs(docs, testset_size=args.size)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     generated.to_pandas().to_csv(args.output, index=False)
-    print(f"Draft written to {args.output}. Manually review it before using it as golden_dataset.json.")
+    print(f"Черновик сохранён в {args.output}. Проверьте его вручную перед использованием как golden_dataset.json.")
 
 
 if __name__ == "__main__":

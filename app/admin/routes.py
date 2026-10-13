@@ -37,7 +37,7 @@ async def get_admin_service(session: DbSessionDep) -> AdminService:
     """Создает сервис административных запросов поверх PostgreSQL-сессии."""
 
     if session is None:
-        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Admin API требует PostgreSQL.")
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Административный API требует PostgreSQL.")
     return AdminService(session=session)
 
 

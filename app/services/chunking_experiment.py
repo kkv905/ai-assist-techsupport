@@ -1,4 +1,4 @@
-"""CLI для воспроизводимого прогона M5B4 against Qdrant.
+"""CLI для воспроизводимого прогона M5B4 с Qdrant.
 
 Запуск: ``uv run python -m app.services.chunking_experiment``. Скрипт
 пересоздаёт только экспериментальные collections ``docs_*``.

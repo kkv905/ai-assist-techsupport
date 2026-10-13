@@ -1,4 +1,4 @@
-"""Minimal Chat Completions agent loop used to demonstrate tool calling."""
+"""Минимальный цикл агента Chat Completions для демонстрации вызова инструментов."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ TOOLS = [
 
 
 def search_knowledge_base(query: str) -> str:
-    """Return the first retrieved RAG fragment, without generating a new answer."""
+    """Возвращает первый найденный RAG-фрагмент, не генерируя новый ответ."""
     from app.core.config import get_settings
     from app.services.rag import NOT_FOUND_ANSWER, RAGService
 
@@ -52,7 +52,7 @@ DISPATCH = {"search_knowledge_base": search_knowledge_base, "get_current_time": 
 
 
 def run_agent(task: str, max_steps: int = 6) -> dict[str, Any]:
-    """Run the bounded LLM/tool loop and return its answer and audit trace."""
+    """Запускает ограниченный цикл LLM и инструментов, возвращая ответ и аудит."""
     messages: list[Any] = [{"role": "user", "content": task}]
     trace: list[dict[str, Any]] = []
     try:

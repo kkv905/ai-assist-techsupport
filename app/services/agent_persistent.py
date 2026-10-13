@@ -1,4 +1,4 @@
-"""Durable LangGraph workflow for approval-gated support notifications.
+"""Устойчивый LangGraph-процесс для уведомлений поддержки с подтверждением действий.
 
 Unlike :mod:`app.services.agent_graph`, this graph deliberately has a small,
 deterministic state machine.  It makes the checkpoint/resume boundary explicit:
@@ -21,7 +21,7 @@ from langgraph.types import interrupt
 
 
 class PersistentAgentState(TypedDict, total=False):
-    """State of an approval-gated support email."""
+    """Состояние письма поддержки, требующего подтверждения."""
 
     request_id: str
     recipient: str
@@ -32,7 +32,7 @@ class PersistentAgentState(TypedDict, total=False):
 
 
 async def send_email(payload: dict[str, str]) -> None:
-    """Integration seam for the future mail provider.
+    """Точка интеграции для будущего почтового провайдера.
 
     The training project intentionally has no SMTP credentials yet.  Keeping
     this async boundary makes the real side effect mockable and prevents an
@@ -41,7 +41,7 @@ async def send_email(payload: dict[str, str]) -> None:
 
 
 async def prepare_email(state: PersistentAgentState) -> dict[str, Any]:
-    """Create a deterministic email payload; this node is idempotent."""
+    """Создаёт детерминированные данные письма; этот узел идемпотентен."""
 
     return {
         "draft": {
@@ -57,7 +57,7 @@ async def prepare_email(state: PersistentAgentState) -> dict[str, Any]:
 async def confirm_and_execute_email(
     state: PersistentAgentState, config: RunnableConfig
 ) -> dict[str, bool]:
-    """Pause for approval, then perform the one non-idempotent operation.
+    """Приостанавливает работу для подтверждения, затем выполняет неидемпотентную операцию.
 
     LangGraph restarts this node on resume.  Consequently there must be no
     external call before ``interrupt``: only the resumed branch can send.
@@ -80,7 +80,7 @@ async def confirm_and_execute_email(
 
 
 def build_agent(checkpointer: Any) -> Any:
-    """Compile the persistent graph with the supplied LangGraph saver."""
+    """Компилирует постоянный граф с переданным хранилищем LangGraph."""
 
     builder = StateGraph(PersistentAgentState)
     builder.add_node("prepare_email", prepare_email)
@@ -92,14 +92,14 @@ def build_agent(checkpointer: Any) -> Any:
 
 
 def _psycopg_uri(database_url: str) -> str:
-    """Convert the application's SQLAlchemy asyncpg URI for psycopg v3."""
+    """Преобразует URI SQLAlchemy asyncpg приложения для psycopg v3."""
 
     return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
 @asynccontextmanager
 async def agent_lifespan(settings: Any) -> AsyncIterator[tuple[Any, Any]]:
-    """Open one saver for the app lifetime and initialise its schema once."""
+    """Открывает одно хранилище на время жизни приложения и однократно создаёт его схему."""
 
     stack = AsyncExitStack()
     try:

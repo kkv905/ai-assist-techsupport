@@ -1,4 +1,4 @@
-"""SSE interface for the durable approval-gated LangGraph workflow."""
+"""SSE-интерфейс для устойчивого LangGraph-процесса с подтверждением действий."""
 
 from __future__ import annotations
 
@@ -45,11 +45,11 @@ def _sse(event: str, payload: Any) -> str:
 
 @router.post("/stream", response_class=StreamingResponse)
 async def stream_agent(request: Request, payload: AgentStreamRequest) -> StreamingResponse:
-    """Stream node updates and model-message events in standard SSE framing."""
+    """Передаёт обновления узлов и события сообщений модели в стандартном SSE-формате."""
 
     graph = getattr(request.app.state, "agent_graph", None)
     if graph is None:
-        raise HTTPException(status_code=503, detail="Persistent agent is not initialised")
+        raise HTTPException(status_code=503, detail="Постоянный агент не инициализирован.")
 
     config = {
         "configurable": {

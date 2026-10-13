@@ -1,4 +1,4 @@
-"""Run the manually reviewed golden set against the configured RAG service.
+"""Запускает вручную проверенный эталонный набор на настроенном RAG-сервисе.
 
 Usage: uv sync --extra eval --extra tracing; uv run python scripts/run_eval.py --label baseline
 """
@@ -32,7 +32,7 @@ METRIC_NAMES = (
 
 
 def load_checkpoint(path: Path) -> dict[str, dict]:
-    """Read completed rows from an append-only checkpoint without trusting partial lines."""
+    """Читает готовые строки из дописываемой контрольной точки, игнорируя неполные строки."""
     if not path.exists():
         return {}
     rows: dict[str, dict] = {}
@@ -41,8 +41,8 @@ def load_checkpoint(path: Path) -> dict[str, dict]:
             row = json.loads(line)
             rows[row["user_input"]] = row
         except (json.JSONDecodeError, KeyError):
-            # A process may be interrupted while writing its final line. Earlier
-            # completed rows remain valid and the question will be retried.
+            # Процесс может быть прерван при записи последней строки. Ранее
+            # завершённые строки остаются корректными, а вопрос будет повторён.
             continue
     return rows
 
@@ -54,13 +54,13 @@ async def run(
     checkpoint_path: Path,
     concurrency: int,
 ) -> list[dict]:
-    # Judge APIs rate-limit burst traffic; a small bound is faster and more reliable
-    # than 31 simultaneous structured-output requests.
+    # API судейской модели ограничивает всплески запросов; малый лимит быстрее и
+    # надёжнее, чем 31 одновременный запрос структурированного вывода.
     semaphore = asyncio.Semaphore(concurrency)
 
     completed = load_checkpoint(checkpoint_path)
     if completed:
-        print(f"Checkpoint restored: {len(completed)}/{len(dataset)} rows.")
+        print(f"Контрольная точка восстановлена: {len(completed)}/{len(dataset)} строк.")
 
     async def one(item: dict, previous: dict | None = None) -> dict:
         async with semaphore:
@@ -91,7 +91,7 @@ async def run(
                 checkpoint.write(json.dumps(row, ensure_ascii=False) + "\n")
                 checkpoint.flush()
                 completed[row["user_input"]] = row
-                print(f"Checkpoint saved: {len(completed)}/{len(dataset)} rows.")
+                print(f"Контрольная точка сохранена: {len(completed)}/{len(dataset)} строк.")
     return [completed[item["user_input"]] for item in dataset]
 
 
@@ -117,25 +117,26 @@ def main() -> None:
     if args.limit is not None:
         dataset = dataset[: args.limit]
     if not dataset:
-        raise ValueError("Golden dataset is empty")
+        raise ValueError("Эталонный набор данных пуст.")
     if args.concurrency < 1:
         raise ValueError("--concurrency must be at least 1")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = args.checkpoint or args.output_dir / f".{args.label}.checkpoint.jsonl"
     settings = get_settings()
     service = RAGService.from_settings(settings)
-    # When all dataset rows already exist in checkpoint, a resume only calls
-    # judges for missing cells. Avoid loading BGE-M3 and touching Qdrant again.
+    # Когда все строки набора уже есть в контрольной точке, при продолжении
+    # судейская модель вызывается лишь для отсутствующих ячеек. Не загружаем
+    # BGE-M3 и не обращаемся к Qdrant повторно.
     checkpoint_rows = load_checkpoint(checkpoint_path)
     needs_retrieval = any(item["user_input"] not in checkpoint_rows for item in dataset)
     if needs_retrieval:
         service.build()
     else:
-        print("Checkpoint contains all RAG outputs; skipping retrieval/index initialization.")
+        print("Контрольная точка содержит все ответы RAG; инициализация поиска и индекса пропущена.")
     try:
         judge_key = settings.rag_eval_judge_api_key
         if judge_key is None:
-            raise ValueError("Set DEEPSEEK_API_KEY (or RAG_EVAL_JUDGE_API_KEY) in .env before eval.")
+            raise ValueError("Перед оценкой задайте DEEPSEEK_API_KEY (или RAG_EVAL_JUDGE_API_KEY) в .env.")
         metrics = build_metrics(
             build_judge(
                 settings.rag_eval_judge_model,
@@ -161,7 +162,7 @@ def main() -> None:
     }
     json_path = csv_path.with_suffix(".json")
     json_path.write_text(json.dumps(aggregates, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {csv_path} and {json_path}")
+    print(f"Сохранены файлы: {csv_path} и {json_path}")
 
 
 if __name__ == "__main__":

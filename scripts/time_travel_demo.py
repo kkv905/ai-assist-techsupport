@@ -1,4 +1,4 @@
-"""Offline demonstration of LangGraph interrupts, history and separate branches."""
+"""Автономная демонстрация прерываний LangGraph, истории и отдельных ветвей."""
 
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ async def main() -> None:
         demo_config = config("demo-history")
 
         paused = await graph.ainvoke(INPUT, demo_config)
-        print("interrupt payload:", paused["__interrupt__"][0].value)
+        print("Данные прерывания:", paused["__interrupt__"][0].value)
 
         history = [state async for state in graph.aget_state_history(demo_config)]
-        print("\ncheckpoint_id                         next")
+        print("\ncheckpoint_id                         следующий шаг")
         for state in history[:5]:
             print(f"{state.config['configurable']['checkpoint_id']}  {state.next}")
 
@@ -57,13 +57,13 @@ async def main() -> None:
             }
         }
         old_state = await graph.aget_state(old_config)
-        print("\nstate before send:", {"draft": old_state.values["draft"], "sent": old_state.values["sent"], "next": old_state.next})
+        print("\nСостояние перед отправкой:", {"draft": old_state.values["draft"], "sent": old_state.values["sent"], "next": old_state.next})
 
         rejected = await run_branch(graph, "demo-rejected", False)
         approved = await run_branch(graph, "demo-approved", True)
-        print("\nseparate lineages (resume is deterministic per lineage):")
-        print("rejected sent =", rejected["sent"])
-        print("approved sent =", approved["sent"])
+        print("\nОтдельные ветви (продолжение детерминировано в пределах ветви):")
+        print("Отправлено после отклонения =", rejected["sent"])
+        print("Отправлено после подтверждения =", approved["sent"])
 
 
 if __name__ == "__main__":

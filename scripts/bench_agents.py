@@ -1,4 +1,4 @@
-"""Offline, reproducible M6B3 benchmark: naive loop vs two LangGraph forms.
+"""Автономный воспроизводимый бенчмарк M6B3: наивный цикл и две формы LangGraph.
 
 It uses scripted LangChain messages and local tools, so its measurements are
 orchestration overhead rather than network latency.  Run it again with real
@@ -33,19 +33,19 @@ REPEATS = 3
 
 @tool
 def lookup(query: str) -> str:
-    """Return a deterministic support-knowledge-base result for a query."""
+    """Возвращает детерминированный результат базы знаний поддержки для запроса."""
     return f"KB: {query}"
 
 
 @tool
 def clock(timezone: str) -> str:
-    """Return a deterministic time value for a timezone."""
+    """Возвращает детерминированное значение времени для часового пояса."""
     return f"TIME: {timezone}"
 
 
 @tool
 def notify(chat_id: str, text: str) -> str:
-    """Simulate notification delivery to an explicit chat identifier."""
+    """Имитирует доставку уведомления в явно заданный чат."""
     return f"STUB: {chat_id}: {text}"
 
 
@@ -53,7 +53,7 @@ OFFLINE_TOOLS = [lookup, clock, notify]
 
 
 class ScriptedChatModel(BaseChatModel):
-    """Small local ChatModel that exercises the normal LangGraph interfaces."""
+    """Небольшая локальная ChatModel для проверки обычных интерфейсов LangGraph."""
 
     responses: list[AIMessage] = Field(default_factory=list)
 
@@ -130,7 +130,7 @@ def _measure(coro: Any) -> tuple[float, dict[str, Any]]:
 
 
 def _naive(task: str) -> dict[str, Any]:
-    """Run the original B6.2 loop against the matching offline transcript."""
+    """Запускает исходный цикл B6.2 на соответствующей автономной расшифровке."""
     scenario = next(item for item in SCENARIOS if item.title == task)
     old_openai, old_dispatch = agent_naive.OpenAI, agent_naive.DISPATCH
     old_key = os.environ.get("OPENAI_API_KEY")
@@ -169,7 +169,7 @@ def run() -> list[dict[str, Any]]:
 
 
 def render_table(rows: list[dict[str, Any]]) -> str:
-    """Render the benchmark section embedded between stable report markers."""
+    """Формирует раздел бенчмарка между стабильными маркерами отчёта."""
     lines = [
         "| Задача | Реализация | latency_ms (mean 3) | prompt_tokens | completion_tokens | total_steps |",
         "|---|---|---:|---:|---:|---:|",
@@ -183,7 +183,7 @@ def render_table(rows: list[dict[str, Any]]) -> str:
 
 
 def write_report_table(rows: list[dict[str, Any]]) -> None:
-    """Replace only the generated table, retaining the explanatory report text."""
+    """Заменяет только сгенерированную таблицу, сохраняя пояснительный текст отчёта."""
     report = REPORT_PATH.read_text(encoding="utf-8")
     start = "<!-- BENCHMARK_TABLE_START -->"
     end = "<!-- BENCHMARK_TABLE_END -->"
